@@ -9,12 +9,13 @@ import android.os.Bundle
 import android.os.Environment
 import android.util.Log
 import android.view.View
-import android.widget.Button
+import android.widget.ImageButton
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.smartdraw.harness.BezierTestHarness
 import com.smartdraw.harness.ReferenceImageGenerator
@@ -25,22 +26,20 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.max
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener {
 
     private lateinit var drawView: SmartDrawView
-    private lateinit var btnPencil: Button
-    private lateinit var btnSmudge: Button
-    private lateinit var btnLoadImage: Button
-    private lateinit var btnAutoColor: Button
-    private lateinit var btnRefOpacity: Button
-    private lateinit var btnClearCanvas: Button
-    private lateinit var btnResetView: Button
-    private lateinit var btnRunHarness: Button
+    private lateinit var btnLoadImage: ImageButton
+    private lateinit var btnPencil: ImageButton
+    private lateinit var btnSmudge: ImageButton
+    private lateinit var btnAutoColor: ImageButton
+    private lateinit var btnResetView: ImageButton
+    private lateinit var btnMoreOptions: ImageButton
     private lateinit var statusText: TextView
     private lateinit var progressBar: ProgressBar
 
-    private val opacities = floatArrayOf(0.15f, 0.3f, 0.5f, 0.8f, 1.0f, 0.0f)
-    private var opacityIndex = 1 // 0.3f default
+    private var currentOpacityPercent: Int = 30
+    private var isSourceVisible: Boolean = true
 
     private lateinit var pickImageLauncher: ActivityResultLauncher<String>
 
@@ -54,14 +53,12 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         drawView = findViewById(R.id.smartDrawView)
+        btnLoadImage = findViewById(R.id.btnLoadImage)
         btnPencil = findViewById(R.id.btnPencil)
         btnSmudge = findViewById(R.id.btnSmudge)
-        btnLoadImage = findViewById(R.id.btnLoadImage)
         btnAutoColor = findViewById(R.id.btnAutoColor)
-        btnRefOpacity = findViewById(R.id.btnRefOpacity)
-        btnClearCanvas = findViewById(R.id.btnClearCanvas)
         btnResetView = findViewById(R.id.btnResetView)
-        btnRunHarness = findViewById(R.id.btnRunHarness)
+        btnMoreOptions = findViewById(R.id.btnMoreOptions)
         statusText = findViewById(R.id.statusText)
         progressBar = findViewById(R.id.progressBar)
 
@@ -74,12 +71,16 @@ class MainActivity : AppCompatActivity() {
 
         // Default: Auto Color is ON for SmartDraw
         drawView.useReferenceColors = true
-        updateAutoColorButton()
+        drawView.toolMode = SmartDrawView.ToolMode.PENCIL
+
+        updateToolSelectionUI()
+        updateAutoColorUI()
 
         // Load default reference image to start
         val refBitmap = ReferenceImageGenerator.createRadialGradient(1024, 1024)
         drawView.setReferenceImage(refBitmap)
-        drawView.setReferenceOpacity(opacities[opacityIndex])
+        drawView.setReferenceOpacity(currentOpacityPercent / 100f)
+        drawView.setReferenceVisible(isSourceVisible)
 
         btnLoadImage.setOnClickListener {
             pickImageLauncher.launch("image/*")
@@ -87,33 +88,20 @@ class MainActivity : AppCompatActivity() {
 
         btnPencil.setOnClickListener {
             drawView.toolMode = SmartDrawView.ToolMode.PENCIL
+            updateToolSelectionUI()
             statusText.text = "Tool: Pencil"
         }
 
         btnSmudge.setOnClickListener {
             drawView.toolMode = SmartDrawView.ToolMode.SMUDGE
+            updateToolSelectionUI()
             statusText.text = "Tool: Smudge"
         }
 
         btnAutoColor.setOnClickListener {
             drawView.useReferenceColors = !drawView.useReferenceColors
-            updateAutoColorButton()
+            updateAutoColorUI()
             statusText.text = if (drawView.useReferenceColors) "Auto color sampling enabled" else "Manual color mode"
-        }
-
-        btnRefOpacity.setOnClickListener {
-            opacityIndex = (opacityIndex + 1) % opacities.size
-            val opacity = opacities[opacityIndex]
-            drawView.setReferenceOpacity(opacity)
-            drawView.setReferenceVisible(opacity > 0.001f)
-            val pct = (opacity * 100).toInt()
-            btnRefOpacity.text = if (opacity <= 0.001f) "Ref: OFF" else "Ref: $pct%"
-            statusText.text = "Reference opacity: $pct%"
-        }
-
-        btnClearCanvas.setOnClickListener {
-            drawView.clearCanvas()
-            statusText.text = "Canvas cleared"
         }
 
         btnResetView.setOnClickListener {
@@ -121,8 +109,8 @@ class MainActivity : AppCompatActivity() {
             statusText.text = "View reset to 1:1 centered"
         }
 
-        btnRunHarness.setOnClickListener {
-            runHarnessAsync()
+        btnMoreOptions.setOnClickListener {
+            showMoreOptionsModal()
         }
 
         if (intent.getBooleanExtra("run_harness", false)) {
@@ -130,12 +118,87 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateAutoColorButton() {
-        btnAutoColor.text = if (drawView.useReferenceColors) "Auto Color: ON" else "Auto Color: OFF"
+    private fun showMoreOptionsModal() {
+        val sheet = MoreOptionsBottomSheet.newInstance(currentOpacityPercent, isSourceVisible)
+        sheet.listener = this
+        sheet.show(supportFragmentManager, MoreOptionsBottomSheet.TAG)
+    }
+
+    // --- MoreOptionsBottomSheet.Listener Implementation ---
+
+    override fun onChangeSourceImageClicked() {
+        pickImageLauncher.launch("image/*")
+    }
+
+    override fun onOpacityChanged(opacityPercent: Int) {
+        currentOpacityPercent = opacityPercent
+        val opacity = opacityPercent / 100f
+        drawView.setReferenceOpacity(opacity)
+        if (opacityPercent > 0 && !isSourceVisible) {
+            isSourceVisible = true
+            drawView.setReferenceVisible(true)
+        }
+        statusText.text = "Source image opacity: $opacityPercent%"
+    }
+
+    override fun onToggleSourceVisibilityClicked(currentlyVisible: Boolean) {
+        isSourceVisible = currentlyVisible
+        drawView.setReferenceVisible(isSourceVisible)
+        statusText.text = if (isSourceVisible) "Source image visible" else "Source image hidden"
+    }
+
+    override fun onClearPaintingClicked() {
+        AlertDialog.Builder(this)
+            .setTitle("Clear Canvas")
+            .setMessage("Are you sure you want to clear your painting? This cannot be undone.")
+            .setPositiveButton("Clear") { _, _ ->
+                drawView.clearCanvas()
+                statusText.text = "Canvas cleared"
+                Toast.makeText(this, "Canvas cleared", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    override fun onResetCanvasViewClicked() {
+        drawView.resetView()
+        statusText.text = "View reset to 1:1 centered"
+    }
+
+    override fun onRunTestHarnessClicked() {
+        runHarnessAsync()
+    }
+
+    // --- UI State Helpers ---
+
+    private fun updateToolSelectionUI() {
+        if (drawView.toolMode == SmartDrawView.ToolMode.PENCIL) {
+            btnPencil.setBackgroundResource(R.drawable.bg_tool_button_active)
+            btnPencil.setColorFilter(getColor(android.R.color.white))
+            btnSmudge.setBackgroundResource(R.drawable.bg_tool_button_inactive)
+            btnSmudge.setColorFilter(0xFFB0B0B0.toInt())
+        } else {
+            btnPencil.setBackgroundResource(R.drawable.bg_tool_button_inactive)
+            btnPencil.setColorFilter(0xFFB0B0B0.toInt())
+            btnSmudge.setBackgroundResource(R.drawable.bg_tool_button_active)
+            btnSmudge.setColorFilter(getColor(android.R.color.white))
+        }
+    }
+
+    private fun updateAutoColorUI() {
+        if (drawView.useReferenceColors) {
+            btnAutoColor.setBackgroundResource(R.drawable.bg_tool_button_active)
+            btnAutoColor.setColorFilter(getColor(android.R.color.white))
+        } else {
+            btnAutoColor.setBackgroundResource(R.drawable.bg_tool_button_inactive)
+            btnAutoColor.setColorFilter(0xFFB0B0B0.toInt())
+        }
     }
 
     private fun loadImageFromUri(uri: Uri) {
-        statusText.text = "Loading image..."
+        statusText.text = "Loading source image..."
+        progressBar.visibility = View.VISIBLE
+
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val loadedBitmap: Bitmap? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -152,6 +215,7 @@ class MainActivity : AppCompatActivity() {
 
                 if (loadedBitmap == null) {
                     withContext(Dispatchers.Main) {
+                        progressBar.visibility = View.GONE
                         Toast.makeText(this@MainActivity, "Failed to load image", Toast.LENGTH_SHORT).show()
                         statusText.text = "Failed to load image"
                     }
@@ -171,18 +235,22 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 withContext(Dispatchers.Main) {
+                    progressBar.visibility = View.GONE
+                    // Replace source image on GPU and ReferenceColorSampler without clearing the user's painting
                     drawView.setReferenceImage(finalBitmap)
-                    drawView.clearCanvas() // Fresh canvas for new reference photo
+                    drawView.setReferenceOpacity(currentOpacityPercent / 100f)
+                    drawView.setReferenceVisible(isSourceVisible)
                     drawView.useReferenceColors = true
-                    updateAutoColorButton()
+                    updateAutoColorUI()
 
-                    val msg = "Loaded image (${finalBitmap.width}x${finalBitmap.height}) for Auto Color"
+                    val msg = "Source image updated (${finalBitmap.width}x${finalBitmap.height})"
                     statusText.text = msg
                     Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading image", e)
                 withContext(Dispatchers.Main) {
+                    progressBar.visibility = View.GONE
                     Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
                     statusText.text = "Error loading image"
                 }
@@ -191,14 +259,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setButtonsEnabled(enabled: Boolean) {
+        btnLoadImage.isEnabled = enabled
         btnPencil.isEnabled = enabled
         btnSmudge.isEnabled = enabled
-        btnLoadImage.isEnabled = enabled
         btnAutoColor.isEnabled = enabled
-        btnRefOpacity.isEnabled = enabled
-        btnClearCanvas.isEnabled = enabled
         btnResetView.isEnabled = enabled
-        btnRunHarness.isEnabled = enabled
+        btnMoreOptions.isEnabled = enabled
     }
 
     private fun runHarnessAsync() {

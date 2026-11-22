@@ -1,5 +1,18 @@
 <resources>
-    <style name="Theme.SmartDraw" parent="Theme.AppCompat.Light.NoActionBar">
-        <item name="android:statusBarColor">#000000</item>
+    <style name="Theme.SmartDraw" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:statusBarColor">#121212</item>
+        <item name="colorPrimary">#2979FF</item>
+        <item name="colorSecondary">#00E676</item>
+        <item name="colorSurface">#1E1E1E</item>
+        <item name="android:colorBackground">#121212</item>
+        <item name="bottomSheetDialogTheme">@style/SmartDrawBottomSheetDialogTheme</item>
+    </style>
+
+    <style name="SmartDrawBottomSheetDialogTheme" parent="Theme.Design.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/SmartDrawBottomSheetStyle</item>
+    </style>
+
+    <style name="SmartDrawBottomSheetStyle" parent="Widget.Design.BottomSheet.Modal">
+        <item name="android:background">@drawable/bg_bottom_sheet</item>
     </style>
 </resources>
