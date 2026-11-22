@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#1E1E1E">
+
+    <!-- Top Toolbar -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#2D2D2D"
+        android:padding="8dp">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <Button
+                android:id="@+id/btnPencil"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Pencil"
+                android:textColor="#FFFFFF" />
+
+            <Button
+                android:id="@+id/btnSmudge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Smudge"
+                android:textColor="#FFFFFF" />
+
+            <Button
+                android:id="@+id/btnAutoColor"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Auto Color: OFF"
+                android:textColor="#FFFFFF" />
+
+            <Button
+                android:id="@+id/btnRunHarness"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Run Test Harness"
+                android:textColor="#FFFFFF" />
+
+            <TextView
+                android:id="@+id/statusText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:text="Ready"
+                android:textColor="#00E676" />
+
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <!-- Canvas -->
+    <com.smartdraw.SmartDrawView
+        android:id="@+id/smartDrawView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+</LinearLayout>
