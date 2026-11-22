@@ -34,6 +34,63 @@
             android:textStyle="bold"
             android:layout_marginBottom="18dp" />
 
+        <!-- SECTION 0: Paintings & Gallery -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="PAINTINGS"
+            android:textColor="#2979FF"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.08"
+            android:layout_marginBottom="12dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="18dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnOpenGalleryModal"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="6dp"
+                android:text="Gallery"
+                android:textColor="#FFFFFF"
+                android:textAllCaps="false"
+                android:textSize="13sp"
+                app:icon="@drawable/ic_gallery"
+                app:iconTint="#FFFFFF"
+                app:iconGravity="textStart"
+                app:backgroundTint="#2D2D2D"
+                app:cornerRadius="10dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnNewPaintingModal"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                android:text="New Painting"
+                android:textColor="#FFFFFF"
+                android:textAllCaps="false"
+                android:textSize="13sp"
+                app:icon="@drawable/ic_add"
+                app:iconTint="#FFFFFF"
+                app:iconGravity="textStart"
+                app:backgroundTint="#2979FF"
+                app:cornerRadius="10dp" />
+
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#333333"
+            android:layout_marginBottom="18dp" />
+
         <!-- SECTION 1: Source Image -->
         <TextView
             android:layout_width="wrap_content"

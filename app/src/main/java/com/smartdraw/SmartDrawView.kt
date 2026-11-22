@@ -121,6 +121,8 @@ class SmartDrawView @JvmOverloads constructor(
         }
     })
 
+    var onStrokeCompleted: (() -> Unit)? = null
+
     init {
         touchHandler = TouchInputHandler(
             baseRadius = brushRadius,
@@ -189,6 +191,7 @@ class SmartDrawView @JvmOverloads constructor(
                         )
                     }
                     requestRender()
+                    post { onStrokeCompleted?.invoke() }
                 }
             },
             onStrokeCancel = {
@@ -526,6 +529,22 @@ class SmartDrawView @JvmOverloads constructor(
         }
 
         return true
+    }
+
+    fun loadBaseBitmap(bitmap: Bitmap) {
+        queueEvent {
+            rendererInstance?.loadBaseBitmap(bitmap)
+            requestRender()
+        }
+    }
+
+    fun exportBaseBitmap(onExported: (Bitmap) -> Unit) {
+        queueEvent {
+            val bmp = rendererInstance?.exportBaseBitmap()
+            if (bmp != null) {
+                post { onExported(bmp) }
+            }
+        }
     }
 
     fun exportBitmap(onExported: (Bitmap) -> Unit) {

@@ -12,6 +12,8 @@ import com.google.android.material.button.MaterialButton
 class MoreOptionsBottomSheet : BottomSheetDialogFragment() {
 
     interface Listener {
+        fun onOpenGalleryClicked()
+        fun onNewPaintingClicked()
         fun onChangeSourceImageClicked()
         fun onOpacityChanged(opacityPercent: Int)
         fun onToggleSourceVisibilityClicked(currentlyVisible: Boolean)
@@ -57,6 +59,8 @@ class MoreOptionsBottomSheet : BottomSheetDialogFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        val btnOpenGalleryModal: MaterialButton = view.findViewById(R.id.btnOpenGalleryModal)
+        val btnNewPaintingModal: MaterialButton = view.findViewById(R.id.btnNewPaintingModal)
         btnChangeSourceImage = view.findViewById(R.id.btnChangeSourceImage)
         textOpacityValue = view.findViewById(R.id.textOpacityValue)
         sliderOpacity = view.findViewById(R.id.sliderOpacity)
@@ -64,6 +68,16 @@ class MoreOptionsBottomSheet : BottomSheetDialogFragment() {
         val btnClearPainting: MaterialButton = view.findViewById(R.id.btnClearPainting)
         val btnResetCanvasView: MaterialButton = view.findViewById(R.id.btnResetCanvasView)
         val btnRunHarnessModal: MaterialButton = view.findViewById(R.id.btnRunHarnessModal)
+
+        btnOpenGalleryModal.setOnClickListener {
+            dismiss()
+            listener?.onOpenGalleryClicked()
+        }
+
+        btnNewPaintingModal.setOnClickListener {
+            dismiss()
+            listener?.onNewPaintingClicked()
+        }
 
         // Set initial states
         sliderOpacity.progress = currentOpacityPercent

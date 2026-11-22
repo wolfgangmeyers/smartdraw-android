@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.util.Log
 import android.view.View
+import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -17,8 +18,13 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import com.smartdraw.gallery.GalleryDialogFragment
 import com.smartdraw.harness.BezierTestHarness
 import com.smartdraw.harness.ReferenceImageGenerator
+import com.smartdraw.project.AutoSaveManager
+import com.smartdraw.project.PaintingProject
+import com.smartdraw.project.ProjectManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -27,12 +33,16 @@ import java.io.File
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener, ToolSettingsBottomSheet.Listener {
+class MainActivity : AppCompatActivity(),
+    MoreOptionsBottomSheet.Listener,
+    ToolSettingsBottomSheet.Listener,
+    GalleryDialogFragment.Listener {
 
-    private lateinit var drawView: SmartDrawView
+    lateinit var drawView: SmartDrawView
     private lateinit var btnActiveTool: ImageButton
     private lateinit var btnAutoColor: ImageButton
     private lateinit var btnResetView: ImageButton
+    private lateinit var btnGallery: ImageButton
     private lateinit var btnMoreOptions: ImageButton
     private lateinit var statusText: TextView
     private lateinit var progressBar: ProgressBar
@@ -40,6 +50,11 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener, ToolS
     private var currentOpacityPercent: Int = 30
     private var isSourceVisible: Boolean = true
     private var isCustomImageLoaded: Boolean = false
+    private var currentReferenceBitmap: Bitmap? = null
+
+    lateinit var projectManager: ProjectManager
+    lateinit var autoSaveManager: AutoSaveManager
+    var currentProject: PaintingProject? = null
 
     private lateinit var pickImageLauncher: ActivityResultLauncher<String>
 
@@ -57,9 +72,42 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener, ToolS
         btnActiveTool = findViewById(R.id.btnActiveTool)
         btnAutoColor = findViewById(R.id.btnAutoColor)
         btnResetView = findViewById(R.id.btnResetView)
+        btnGallery = findViewById(R.id.btnGallery)
         btnMoreOptions = findViewById(R.id.btnMoreOptions)
         statusText = findViewById(R.id.statusText)
         progressBar = findViewById(R.id.progressBar)
+
+        projectManager = ProjectManager(this)
+
+        autoSaveManager = AutoSaveManager(
+            projectManager = projectManager,
+            coroutineScope = lifecycleScope,
+            provider = object : AutoSaveManager.ProjectDataProvider {
+                override fun getCurrentProject(): PaintingProject? {
+                    val p = currentProject ?: return null
+                    // Synchronize latest UI settings into currentProject
+                    p.referenceOpacity = currentOpacityPercent / 100f
+                    p.isReferenceVisible = isSourceVisible
+                    p.useReferenceColors = drawView.useReferenceColors
+                    p.activeTool = if (drawView.toolMode == SmartDrawView.ToolMode.PENCIL) "PENCIL" else "SMUDGE"
+                    p.brushSize = drawView.getBrushSize()
+                    p.brushOpacity = drawView.brushOpacity
+                    return p
+                }
+
+                override fun requestBaseBitmap(onBitmapReady: (Bitmap) -> Unit) {
+                    drawView.exportBaseBitmap(onBitmapReady)
+                }
+
+                override fun getReferenceBitmap(): Bitmap? {
+                    return currentReferenceBitmap
+                }
+            }
+        )
+
+        drawView.onStrokeCompleted = {
+            autoSaveManager.markDirty()
+        }
 
         // ActivityResultLauncher for selecting source/reference image from gallery or storage
         pickImageLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -68,25 +116,15 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener, ToolS
             }
         }
 
-        // Default: Auto Color is ON for SmartDraw, default tool is Pencil
-        drawView.useReferenceColors = true
-        drawView.toolMode = SmartDrawView.ToolMode.PENCIL
-
-        updateActiveToolUI()
-        updateAutoColorUI()
-
-        // Load default reference image to start
-        val refBitmap = ReferenceImageGenerator.createRadialGradient(1024, 1024)
-        drawView.setReferenceImage(refBitmap)
-        drawView.setReferenceOpacity(currentOpacityPercent / 100f)
-        drawView.setReferenceVisible(isSourceVisible)
-
+        // Toolbar Button Listeners
         btnActiveTool.setOnClickListener {
             showToolSettingsModal()
         }
 
         btnAutoColor.setOnClickListener {
             drawView.useReferenceColors = !drawView.useReferenceColors
+            currentProject?.useReferenceColors = drawView.useReferenceColors
+            autoSaveManager.markDirty()
             updateAutoColorUI()
             statusText.text = if (drawView.useReferenceColors) "Auto color sampling enabled" else "Manual color mode"
         }
@@ -96,13 +134,160 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener, ToolS
             statusText.text = "View reset to 1:1 centered"
         }
 
+        btnGallery.setOnClickListener {
+            openGallery()
+        }
+
         btnMoreOptions.setOnClickListener {
             showMoreOptionsModal()
         }
 
+        // Session Restoration / Cold Start
+        restoreOrInitializeSession()
+
         if (intent.getBooleanExtra("run_harness", false)) {
             runHarnessAsync()
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        autoSaveManager.flushSaveSync()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        autoSaveManager.flushSaveSync()
+    }
+
+    private fun restoreOrInitializeSession() {
+        var activeProject = projectManager.getActiveProject()
+        if (activeProject == null) {
+            // First install or no projects: create initial project with blank canvas
+            activeProject = projectManager.createNewProject(1024, 1024, "My First Painting")
+        }
+
+        loadProjectIntoEditor(activeProject.id)
+    }
+
+    fun loadProjectIntoEditor(projectId: String) {
+        try {
+            val loaded = projectManager.loadProject(projectId)
+            val project = loaded.project
+            currentProject = project
+            projectManager.setActiveProject(project.id)
+
+            // Canvas Dimensions & Base Layer
+            drawView.setCanvasDimensions(project.canvasWidth, project.canvasHeight)
+            if (loaded.baseBitmap != null) {
+                drawView.loadBaseBitmap(loaded.baseBitmap)
+                loaded.baseBitmap.recycle()
+            } else {
+                drawView.clearCanvas()
+            }
+
+            // Reference Image
+            currentReferenceBitmap?.recycle()
+            currentReferenceBitmap = loaded.referenceBitmap
+            if (loaded.referenceBitmap != null) {
+                drawView.setReferenceImage(loaded.referenceBitmap)
+                isCustomImageLoaded = true
+            } else {
+                // If project has no reference image, default radial gradient
+                val refBitmap = ReferenceImageGenerator.createRadialGradient(project.canvasWidth, project.canvasHeight)
+                drawView.setReferenceImage(refBitmap)
+                currentReferenceBitmap = refBitmap
+                isCustomImageLoaded = false
+            }
+
+            // Reference Layer Visibility & Opacity
+            currentOpacityPercent = (project.referenceOpacity * 100f).roundToInt().coerceIn(0, 100)
+            isSourceVisible = project.isReferenceVisible
+            drawView.setReferenceOpacity(project.referenceOpacity)
+            drawView.setReferenceVisible(isSourceVisible)
+
+            // Tool & Brush Settings
+            drawView.useReferenceColors = project.useReferenceColors
+            drawView.toolMode = if (project.activeTool == "SMUDGE") SmartDrawView.ToolMode.SMUDGE else SmartDrawView.ToolMode.PENCIL
+            drawView.setBrushSize(project.brushSize)
+            drawView.brushOpacity = project.brushOpacity
+
+            updateActiveToolUI()
+            updateAutoColorUI()
+            drawView.resetView()
+
+            statusText.text = "${project.title} loaded"
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load project $projectId", e)
+            Toast.makeText(this, "Failed to load project: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openGallery() {
+        // Flush any pending auto-save before opening gallery
+        autoSaveManager.flushSaveSync()
+
+        val galleryDialog = GalleryDialogFragment.newInstance().apply {
+            this.projectManager = this@MainActivity.projectManager
+            this.listener = this@MainActivity
+        }
+        galleryDialog.show(supportFragmentManager, GalleryDialogFragment.TAG)
+    }
+
+    private fun promptNewPainting() {
+        // Flush current active project first
+        autoSaveManager.flushSaveSync()
+
+        val input = EditText(this).apply {
+            hint = "Painting Title (optional)"
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("New Painting")
+            .setView(input)
+            .setPositiveButton("Create") { _, _ ->
+                val title = input.text.toString().trim().takeIf { it.isNotEmpty() } ?: "Untitled Painting"
+                val newProject = projectManager.createNewProject(1024, 1024, title)
+                loadProjectIntoEditor(newProject.id)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    // --- GalleryDialogFragment.Listener Implementation ---
+
+    override fun onProjectSelected(project: PaintingProject) {
+        if (currentProject?.id != project.id) {
+            autoSaveManager.flushSaveSync()
+            loadProjectIntoEditor(project.id)
+        }
+    }
+
+    override fun onNewPaintingRequested() {
+        promptNewPainting()
+    }
+
+    override fun onProjectDeleted(deletedProject: PaintingProject) {
+        if (currentProject?.id == deletedProject.id) {
+            // Deleted project was active! Find next active or create new
+            val nextActive = projectManager.getActiveProject()
+            if (nextActive != null) {
+                loadProjectIntoEditor(nextActive.id)
+            } else {
+                val newProj = projectManager.createNewProject(1024, 1024, "Untitled Painting")
+                loadProjectIntoEditor(newProj.id)
+            }
+        }
+    }
+
+    // --- MoreOptionsBottomSheet.Listener Implementation ---
+
+    override fun onOpenGalleryClicked() {
+        openGallery()
+    }
+
+    override fun onNewPaintingClicked() {
+        promptNewPainting()
     }
 
     private fun showToolSettingsModal() {
@@ -129,6 +314,8 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener, ToolS
 
     override fun onToolSelected(toolMode: SmartDrawView.ToolMode) {
         drawView.toolMode = toolMode
+        currentProject?.activeTool = if (toolMode == SmartDrawView.ToolMode.PENCIL) "PENCIL" else "SMUDGE"
+        autoSaveManager.markDirty()
         updateActiveToolUI()
         val name = if (toolMode == SmartDrawView.ToolMode.PENCIL) "Pencil" else "Smudge"
         statusText.text = "Tool: $name (size: ${drawView.getBrushSize().roundToInt()} px)"
@@ -136,16 +323,18 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener, ToolS
 
     override fun onBrushSizeChanged(radius: Float) {
         drawView.setBrushSize(radius)
+        currentProject?.brushSize = radius
+        autoSaveManager.markDirty()
         val name = if (drawView.toolMode == SmartDrawView.ToolMode.PENCIL) "Pencil" else "Smudge"
         statusText.text = "Tool: $name (size: ${radius.roundToInt()} px)"
     }
 
     override fun onBrushOpacityChanged(opacity: Float) {
         drawView.brushOpacity = opacity
+        currentProject?.brushOpacity = opacity
+        autoSaveManager.markDirty()
         statusText.text = "Brush opacity: ${(opacity * 100f).roundToInt()}%"
     }
-
-    // --- MoreOptionsBottomSheet.Listener Implementation ---
 
     override fun onChangeSourceImageClicked() {
         pickImageLauncher.launch("image/*")
@@ -155,16 +344,21 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener, ToolS
         currentOpacityPercent = opacityPercent
         val opacity = opacityPercent / 100f
         drawView.setReferenceOpacity(opacity)
+        currentProject?.referenceOpacity = opacity
         if (opacityPercent > 0 && !isSourceVisible) {
             isSourceVisible = true
             drawView.setReferenceVisible(true)
+            currentProject?.isReferenceVisible = true
         }
+        autoSaveManager.markDirty()
         statusText.text = "Source image opacity: $opacityPercent%"
     }
 
     override fun onToggleSourceVisibilityClicked(currentlyVisible: Boolean) {
         isSourceVisible = currentlyVisible
         drawView.setReferenceVisible(isSourceVisible)
+        currentProject?.isReferenceVisible = isSourceVisible
+        autoSaveManager.markDirty()
         statusText.text = if (isSourceVisible) "Source image visible" else "Source image hidden"
     }
 
@@ -174,6 +368,7 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener, ToolS
             .setMessage("Are you sure you want to clear your painting? This cannot be undone.")
             .setPositiveButton("Clear") { _, _ ->
                 drawView.clearCanvas()
+                autoSaveManager.markDirty()
                 statusText.text = "Canvas cleared"
                 Toast.makeText(this, "Canvas cleared", Toast.LENGTH_SHORT).show()
             }
@@ -216,6 +411,7 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener, ToolS
         btnActiveTool.isEnabled = enabled
         btnAutoColor.isEnabled = enabled
         btnResetView.isEnabled = enabled
+        btnGallery.isEnabled = enabled
         btnMoreOptions.isEnabled = enabled
     }
 
@@ -294,8 +490,6 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener, ToolS
             }
         }
 
-        // Slider progress: 0 to 7 -> scale: 1 to 8
-        // Default to 1x (or 2x if original is small)
         val defaultScale = if (max(origW, origH) <= 1024) 2 else 1
         sliderScale.progress = defaultScale - 1
         updateResolutionPreview(defaultScale)
@@ -358,10 +552,21 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener, ToolS
                 withContext(Dispatchers.Main) {
                     progressBar.visibility = View.GONE
                     isCustomImageLoaded = true
+                    currentReferenceBitmap?.recycle()
+                    currentReferenceBitmap = finalBitmap
+
                     drawView.setCanvasDimensions(targetW, targetH)
                     drawView.setReferenceImage(finalBitmap)
                     drawView.useReferenceColors = true
                     updateAutoColorUI()
+
+                    currentProject?.let { p ->
+                        p.canvasWidth = targetW
+                        p.canvasHeight = targetH
+                        p.useReferenceColors = true
+                    }
+                    autoSaveManager.markDirty()
+
                     statusText.text = "Canvas created: ${targetW}×${targetH} px"
                     Toast.makeText(this@MainActivity, "Loaded ${targetW}×${targetH} canvas", Toast.LENGTH_SHORT).show()
                 }
@@ -412,6 +617,7 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener, ToolS
             withContext(Dispatchers.Main) {
                 if (finalBitmap != null) {
                     drawView.loadPaintingBitmap(finalBitmap)
+                    autoSaveManager.markDirty()
                 }
 
                 setButtonsEnabled(true)

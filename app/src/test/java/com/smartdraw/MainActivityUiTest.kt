@@ -22,12 +22,14 @@ class MainActivityUiTest {
         val btnActiveTool: ImageButton = activity.findViewById(R.id.btnActiveTool)
         val btnAutoColor: ImageButton = activity.findViewById(R.id.btnAutoColor)
         val btnResetView: ImageButton = activity.findViewById(R.id.btnResetView)
+        val btnGallery: ImageButton = activity.findViewById(R.id.btnGallery)
         val btnMoreOptions: ImageButton = activity.findViewById(R.id.btnMoreOptions)
         val drawView: SmartDrawView = activity.findViewById(R.id.smartDrawView)
 
         assertNotNull(btnActiveTool)
         assertNotNull(btnAutoColor)
         assertNotNull(btnResetView)
+        assertNotNull(btnGallery)
         assertNotNull(btnMoreOptions)
         assertNotNull(drawView)
 
@@ -83,5 +85,23 @@ class MainActivityUiTest {
         assertEquals(SmartDrawView.ToolMode.PENCIL, sheet.currentTool)
         assertEquals(24.0f, sheet.currentBrushRadius, 0.001f)
         assertEquals(0.8f, sheet.currentBrushOpacity, 0.001f)
+    }
+
+    @Test
+    fun testSessionRestorationLoadsActiveProject() {
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        val activity = controller.get()
+
+        assertNotNull(activity.currentProject)
+        assertNotNull(activity.projectManager.getActiveProject())
+        assertEquals(activity.currentProject?.id, activity.projectManager.getActiveProjectId())
+
+        // Create new project and switch
+        val newProj = activity.projectManager.createNewProject(1200, 1600, "Portrait Test")
+        activity.loadProjectIntoEditor(newProj.id)
+
+        assertEquals("Portrait Test", activity.currentProject?.title)
+        assertEquals(1200, activity.drawView.canvasWidth)
+        assertEquals(1600, activity.drawView.canvasHeight)
     }
 }
