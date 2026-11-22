@@ -158,32 +158,40 @@ To deliver professional-grade palm rejection and an ergonomic drawing experience
    - When a stylus is active on screen (`ACTION_DOWN` or `ACTION_MOVE` with `TOOL_TYPE_STYLUS`), any simultaneous finger touches are discarded, preventing unintended canvas navigation or stray artifact generation.
    - Eraser hardware button / tail eraser: Styluses reporting `TOOL_TYPE_ERASER` or `BUTTON_STYLUS_PRIMARY` automatically map to canvas erasing / clearing behaviors without finger gesture interference.
 
-### 4.2 Two-Finger Viewport Navigation (Pan & Pinch-to-Zoom)
+### 4.2 Two-Finger Viewport Navigation (Pan, Pinch-to-Zoom & Midpoint-Pivoted Rotation)
 
 Finger touches are reserved exclusively for viewport manipulation:
 
 1. **Gesture Disambiguation**:
    - **0 fingers / Stylus only**: Drawing / smudging active (if stylus pressed). Viewport remains stationary.
    - **1 finger touch**: Rejected / ignored (no drawing, no panning). This prevents accidental one-finger drags when resting fingers or palms touch the glass before or after a stroke.
-   - **2 fingers touch**: Activates Viewport Navigation mode (pan and pinch-to-zoom).
+   - **2 fingers touch**: Activates Viewport Navigation mode (combined pan, pinch-to-zoom, and midpoint-pivoted rotation).
    - **3+ fingers touch**: Ignored or reserved for system multi-touch gestures (e.g., three-finger tap for undo/redo).
 2. **Viewport State Model**:
    The canvas viewport is governed by a 2D affine transformation:
    - Translation offsets: $(T_x, T_y)$ in screen pixels.
    - Uniform scale: $S \in [S_{\min}, S_{\max}]$ where $S_{\min} = 0.1$ ($10\%$ canvas size) and $S_{\max} = 10.0$ ($1000\%$ zoom). Default scale $S_0 = 1.0$.
-3. **Pinch-to-Zoom & Pan Gesture Math**:
+   - Rotation angle: $\theta \in (-180^\circ, 180^\circ]$ (in degrees). Default rotation $\theta_0 = 0^\circ$.
+3. **Midpoint-Pivoted Affine Gesture Math**:
    - Given two finger contact points $P_{1} = (x_1, y_1)$ and $P_2 = (x_2, y_2)$ at time $t$:
-     $$\text{Focal Point } F = \left(\frac{x_1 + x_2}{2}, \frac{y_1 + y_2}{2}\right)$$
-     $$\text{Finger Distance } D = \sqrt{(x_2 - x_1)^2 + (y_2 - y_1)^2}$$
-   - Between consecutive gesture frames $(t-1 \to t)$ with focal delta $(\Delta F_x, \Delta F_y)$ and scale ratio $r = D_t / D_{t-1}$:
-     $$S_{\text{new}} = \text{clamp}(S \times r, S_{\min}, S_{\max})$$
-     To zoom anchored at the focal point $F = (F_x, F_y)$, the translation updates as:
-     $$T_x' = F_x - \frac{S_{\text{new}}}{S} (F_x - T_x) + \Delta F_x$$
-     $$T_y' = F_y - \frac{S_{\text{new}}}{S} (F_y - T_y) + \Delta F_y$$
-4. **Viewport Reset Mechanisms**:
-   - **Double-Tap with Two Fingers**: Instantly animates or snaps the viewport back to default centered fit:
-     $$S = 1.0, \quad T_x = \frac{W_{\text{screen}} - W_{\text{canvas}}}{2}, \quad T_y = \frac{H_{\text{screen}} - H_{\text{canvas}}}{2}$$
-   - **Toolbar Reset Button**: A dedicated reset button in the UI overlay executes the same viewport re-centering and scale normalization.
+     $$\text{Midpoint / Focal Point } F = \left(\frac{x_1 + x_2}{2}, \frac{y_1 + y_2}{2}\right)$$
+     $$\text{Finger Distance } D = \|P_2 - P_1\| = \sqrt{(x_2 - x_1)^2 + (y_2 - y_1)^2}$$
+     $$\text{Finger Angle } \alpha = \text{atan2}(P_2.y - P_1.y, P_2.x - P_1.x)$$
+   - Between consecutive gesture frames $(t-1 \to t)$:
+     - Scale factor $s = \frac{D_t}{D_{t-1}}$, with target scale clamped to $[S_{\min}, S_{\max}]$:
+       $$S_{\text{new}} = \text{clamp}(S \times s, S_{\min}, S_{\max}), \quad s_{\text{actual}} = \frac{S_{\text{new}}}{S}$$
+     - Angular delta $\Delta\alpha = \alpha_t - \alpha_{t-1}$ normalized to $(-\pi, \pi]$:
+       $$\Delta\theta = \text{degrees}(\Delta\alpha)$$
+       $$\theta_{\text{new}} = \text{normalize}(\theta + \Delta\theta) \in (-180^\circ, 180^\circ]$$
+     - Focal-anchored affine update:
+       $$T_{\text{new}} = F_{\text{curr}} + R(\Delta\theta) \cdot (s_{\text{actual}} \cdot (T_{\text{prev}} - F_{\text{prev}}))$$
+       where $R(\Delta\theta)$ is the 2D rotation matrix:
+       $$R(\Delta\theta) = \begin{bmatrix} \cos(\Delta\theta) & -\sin(\Delta\theta) \\ \sin(\Delta\theta) & \cos(\Delta\theta) \end{bmatrix}$$
+4. **Viewport Reset & Clear Mechanisms**:
+   - **Double-Tap with Two Fingers**: Instantly snaps the viewport back to default centered fit with $S = 1.0$, $\theta = 0^\circ$, and re-centered translation:
+     $$S = 1.0, \quad \theta = 0^\circ, \quad T_x = \frac{W_{\text{screen}} - W_{\text{canvas}}}{2}, \quad T_y = \frac{H_{\text{screen}} - H_{\text{canvas}}}{2}$$
+   - **Toolbar Reset Button**: A dedicated reset button in the UI overlay executes the same viewport re-centering, scale normalization to $1.0f$, and rotation reset to $0^\circ$.
+   - **Toolbar Clear Button**: Clears the canvas FBOs (`baseFbo` and `scratchFbo`) to opaque white (`[1f, 1f, 1f, 1f]`).
 
 ### 4.3 Coordinate Space & Transformation Pipeline
 
@@ -196,18 +204,22 @@ SmartDraw operates across three distinct coordinate spaces:
 #### 4.3.1 Forward & Inverse Viewport Transforms
 
 The forward transform maps Canvas Space to Screen Space:
-$$\begin{bmatrix} x_s \\ y_s \end{bmatrix} = S \begin{bmatrix} x_c \\ y_c \end{bmatrix} + \begin{bmatrix} T_x \\ T_y \end{bmatrix}$$
+$$\begin{bmatrix} x_s \\ y_s \end{bmatrix} = \begin{bmatrix} T_x \\ T_y \end{bmatrix} + R(\theta) \begin{bmatrix} S \cdot x_c \\ S \cdot y_c \end{bmatrix}$$
 
-The inverse transform maps Screen Space to Canvas Space:
-$$\begin{bmatrix} x_c \\ y_c \end{bmatrix} = \frac{1}{S} \begin{bmatrix} x_s - T_x \\ y_s - T_y \end{bmatrix}$$
+The exact inverse affine transform maps Screen Space to Canvas Space:
+$$\begin{bmatrix} x_c \\ y_c \end{bmatrix} = \frac{1}{S} R(-\theta) \begin{bmatrix} x_s - T_x \\ y_s - T_y \end{bmatrix}$$
+
+Expanding the inverse transform:
+$$\begin{bmatrix} x_c \\ y_c \end{bmatrix} = \frac{1}{S} \begin{bmatrix} \cos(\theta) & \sin(\theta) \\ -\sin(\theta) & \cos(\theta) \end{bmatrix} \begin{bmatrix} x_s - T_x \\ y_s - T_y \end{bmatrix}$$
 
 #### 4.3.2 Stylus Event Mapping
 
 When stylus `MotionEvent` samples arrive at $(x_s, y_s)$ (including both current and batched historical coordinates):
-1. Coordinates are inverted to canvas space:
-   $$x_c = \frac{x_s - T_x}{S}, \quad y_c = \frac{y_s - T_y}{S}$$
+1. Coordinates are inverted to canvas space via the exact inverse affine transform:
+   $$x_c = \frac{(x_s - T_x) \cos(\theta) + (y_s - T_y) \sin(\theta)}{S}$$
+   $$y_c = \frac{-(x_s - T_x) \sin(\theta) + (y_s - T_y) \cos(\theta)}{S}$$
 2. The resulting $(x_c, y_c)$ points are passed into the Bezier spline smoother (`StrokeSmoother.kt`).
-3. Stroke bounding boxes, stamp step sizes, and minimum/maximum extent evaluations are computed directly in Canvas Space so brush geometry remains invariant to zoom level.
+3. Stroke bounding boxes, stamp step sizes, and minimum/maximum extent evaluations are computed directly in Canvas Space so brush geometry remains invariant to zoom level and rotation angle.
 4. Brush radius scale behavior: Brush radius $R$ is defined in Canvas Space. At higher zoom levels, the stroke displays proportionally larger on screen, but writes the identical pixel footprint into the offscreen FBO.
 
 #### 4.3.3 Reference Color Sampling Mapping
@@ -218,15 +230,20 @@ When `useReferenceColors` is enabled, the auto-picker (`ReferenceColorSampler.kt
    $$\text{offset}_x = \frac{W_{\text{canvas}} - (W_{\text{ref}} \times \text{scale}_{\text{ref}})}{2}, \quad \text{offset}_y = \frac{H_{\text{canvas}} - (H_{\text{ref}} \times \text{scale}_{\text{ref}})}{2}$$
 2. Reference pixel coordinates:
    $$x_r = \frac{x_c - \text{offset}_x}{\text{scale}_{\text{ref}}}, \quad y_r = \frac{y_c - \text{offset}_y}{\text{scale}_{\text{ref}}}$$
-3. Because sampling operates in Canvas Space, zooming or panning the viewport never shifts or misaligns the sampled reference colors relative to the canvas content.
+3. Because sampling operates in Canvas Space, zooming, rotating, or panning the viewport never shifts or misaligns the sampled reference colors relative to the canvas content.
 
 #### 4.3.4 Viewport MVP Matrix in GLES Compositing Pass
 
-The Drawing FBO texture remains unscaled and unpanned in texture memory ($W_{\text{canvas}} \times H_{\text{canvas}}$). During the final composite pass to the display `SurfaceView` (`GL_FRAMEBUFFER 0`):
-- An orthographic projection matrix $M_{\text{proj}}$ projects screen pixel space $[0, W_{\text{screen}}] \times [H_{\text{screen}}, 0]$ to NDC $[-1, 1] \times [-1, 1]$.
-- A model matrix $M_{\text{model}}$ translates by $(T_x, T_y)$ and scales by $(S \times W_{\text{canvas}}, S \times H_{\text{canvas}})$.
+The Drawing FBO texture remains unscaled, unrotated, and unpanned in texture memory ($W_{\text{canvas}} \times H_{\text{canvas}}$). During the final composite pass to the display `SurfaceView` (`GL_FRAMEBUFFER 0`):
+- An orthographic projection matrix $M_{\text{proj}}$ projects screen pixel space $[0, W_{\text{screen}}] \times [H_{\text{screen}}, 0]$ to NDC $[-1, 1] \times [-1, 1]$:
+  $$\text{orthoM}(M_{\text{proj}}, 0, 0, W_{\text{screen}}, H_{\text{screen}}, 0, -1, 1)$$
+- A model matrix $M_{\text{model}}$ translates by $(T_x, T_y)$, rotates by $\theta$ around $Z$-axis, and scales by $(S \times W_{\text{canvas}}, S \times H_{\text{canvas}})$:
+  $$\text{translateM}(M_{\text{model}}, 0, T_x, T_y, 0)$$
+  $$\text{rotateM}(M_{\text{model}}, 0, \theta, 0, 0, 1)$$
+  $$\text{scaleM}(M_{\text{model}}, 0, S \cdot W_{\text{canvas}}, S \cdot H_{\text{canvas}}, 1)$$
 - Combined MVP Matrix:
   $$M_{\text{mvp}} = M_{\text{proj}} \times M_{\text{model}}$$
+- In `CompositingShader.kt`, the quad UV mapping maps top-left $(x=0, y=0)$ to $(u=0, v=1.0)$ and bottom-left $(x=0, y=1)$ to $(u=0, v=0.0)$, matching OpenGL texture coordinates and ensuring the canvas, reference layer, stylus drawing, and AutoColor sampling match 1:1 visually on the screen.
 - The quad vertex shader applies $gl\_Position = M_{\text{mvp}} \times vec4(a\_position, 0.0, 1.0)$, transforming the canvas quad on screen smoothly at 60–120 FPS without altering FBO pixel data.
 
 ### 4.4 Edge Cases & State Invariants

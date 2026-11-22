@@ -35,12 +35,14 @@ class SmartDrawView @JvmOverloads constructor(
     val canvasWidth = 1024
     val canvasHeight = 1024
 
-    // Viewport affine transform state: Screen = viewportScale * Canvas + viewportTranslation
+    // Viewport affine transform state: Screen = R(theta) * (viewportScale * Canvas) + viewportTranslation
     var viewportTranslationX: Float = 0f
         private set
     var viewportTranslationY: Float = 0f
         private set
     var viewportScale: Float = 1.0f
+        private set
+    var viewportRotationDegrees: Float = 0f
         private set
 
     companion object {
@@ -54,6 +56,8 @@ class SmartDrawView @JvmOverloads constructor(
 
     private var prevFocalX = 0f
     private var prevFocalY = 0f
+    private var prevFingerDistance = 0f
+    private var prevFingerAngle = 0f
     private var isNavigating = false
 
     private val touchHandler = TouchInputHandler(
@@ -89,30 +93,6 @@ class SmartDrawView @JvmOverloads constructor(
             }
         }
     )
-
-    private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-        override fun onScale(detector: ScaleGestureDetector): Boolean {
-            if (touchHandler.isStylusActive) return false
-
-            val factor = detector.scaleFactor
-            if (factor <= 0f) return true
-
-            val oldScale = viewportScale
-            val newScale = (oldScale * factor).coerceIn(MIN_SCALE, MAX_SCALE)
-            val focusX = detector.focusX
-            val focusY = detector.focusY
-
-            // Zoom anchored at focal point:
-            // T' = F - (newScale / oldScale) * (F - T)
-            val scaleRatio = newScale / oldScale
-            viewportTranslationX = focusX - scaleRatio * (focusX - viewportTranslationX)
-            viewportTranslationY = focusY - scaleRatio * (focusY - viewportTranslationY)
-            viewportScale = newScale
-
-            requestRender()
-            return true
-        }
-    })
 
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDoubleTap(e: MotionEvent): Boolean {
@@ -158,38 +138,64 @@ class SmartDrawView @JvmOverloads constructor(
             viewportH = surfaceHeight,
             translationX = viewportTranslationX,
             translationY = viewportTranslationY,
-            scale = viewportScale
+            scale = viewportScale,
+            rotationDegrees = viewportRotationDegrees
         )
     }
 
     /**
      * Map screen coordinates to intrinsic canvas space:
-     * x_c = (x_s - T_x) / S
-     * y_c = (y_s - T_y) / S
+     * Screen = T + R(theta) * (S * Canvas)
+     * Canvas = (1 / S) * R(-theta) * (Screen - T)
+     *
+     * Let dx = screenX - T_x, dy = screenY - T_y
+     * Rotate (dx, dy) by -theta:
+     * rx = dx * cos(-theta) - dy * sin(-theta) = dx * cos(theta) + dy * sin(theta)
+     * ry = dx * sin(-theta) + dy * cos(-theta) = -dx * sin(theta) + dy * cos(theta)
+     * x_c = rx / S
+     * y_c = ry / S
      */
     fun screenToCanvas(screenX: Float, screenY: Float): Pair<Float, Float> {
         val s = if (viewportScale != 0f) viewportScale else 1.0f
-        val cx = (screenX - viewportTranslationX) / s
-        val cy = (screenY - viewportTranslationY) / s
+        val dx = screenX - viewportTranslationX
+        val dy = screenY - viewportTranslationY
+        val rad = Math.toRadians(viewportRotationDegrees.toDouble())
+        val cos = kotlin.math.cos(rad).toFloat()
+        val sin = kotlin.math.sin(rad).toFloat()
+
+        val rx = dx * cos + dy * sin
+        val ry = -dx * sin + dy * cos
+
+        val cx = rx / s
+        val cy = ry / s
         return Pair(cx, cy)
     }
 
     /**
      * Map intrinsic canvas coordinates to screen space:
-     * x_s = S * x_c + T_x
-     * y_s = S * y_c + T_y
+     * Screen = T + R(theta) * (S * Canvas)
      */
     fun canvasToScreen(canvasX: Float, canvasY: Float): Pair<Float, Float> {
-        val sx = viewportScale * canvasX + viewportTranslationX
-        val sy = viewportScale * canvasY + viewportTranslationY
-        return Pair(sx, sy)
+        val s = viewportScale
+        val rad = Math.toRadians(viewportRotationDegrees.toDouble())
+        val cos = kotlin.math.cos(rad).toFloat()
+        val sin = kotlin.math.sin(rad).toFloat()
+
+        val sx = s * canvasX
+        val sy = s * canvasY
+
+        val rx = sx * cos - sy * sin
+        val ry = sx * sin + sy * cos
+
+        return Pair(rx + viewportTranslationX, ry + viewportTranslationY)
     }
 
     /**
-     * Center canvas in the viewport at 1:1 scale (scale = 1.0f).
+     * Center canvas in the viewport at 1:1 scale (scale = 1.0f) and 0 degrees rotation.
      */
     fun resetView() {
         viewportScale = 1.0f
+        viewportRotationDegrees = 0f
         centerCanvas(surfaceWidth, surfaceHeight)
         requestRender()
     }
@@ -197,6 +203,13 @@ class SmartDrawView @JvmOverloads constructor(
     private fun centerCanvas(w: Int, h: Int) {
         viewportTranslationX = (w - canvasWidth * viewportScale) * 0.5f
         viewportTranslationY = (h - canvasHeight * viewportScale) * 0.5f
+    }
+
+    fun clearCanvas() {
+        queueEvent {
+            rendererInstance?.clearCanvas(1.0f, 1.0f, 1.0f, 1.0f)
+            requestRender()
+        }
     }
 
     fun setReferenceImage(bitmap: Bitmap) {
@@ -254,10 +267,6 @@ class SmartDrawView @JvmOverloads constructor(
         // If no stylus, stylus drawing cannot occur. Handle two-finger gestures and double-tap reset.
         gestureDetector.onTouchEvent(event)
 
-        if (fingerCount == 2) {
-            scaleDetector.onTouchEvent(event)
-        }
-
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 isNavigating = false
@@ -267,8 +276,6 @@ class SmartDrawView @JvmOverloads constructor(
 
             MotionEvent.ACTION_POINTER_DOWN -> {
                 if (fingerCount == 2) {
-                    isNavigating = true
-                    // Compute initial focal point between the two finger contacts
                     val fingerIndices = mutableListOf<Int>()
                     for (i in 0 until event.pointerCount) {
                         if (event.getToolType(i) == MotionEvent.TOOL_TYPE_FINGER) {
@@ -276,8 +283,16 @@ class SmartDrawView @JvmOverloads constructor(
                         }
                     }
                     if (fingerIndices.size >= 2) {
-                        prevFocalX = (event.getX(fingerIndices[0]) + event.getX(fingerIndices[1])) * 0.5f
-                        prevFocalY = (event.getY(fingerIndices[0]) + event.getY(fingerIndices[1])) * 0.5f
+                        isNavigating = true
+                        val p1x = event.getX(fingerIndices[0])
+                        val p1y = event.getY(fingerIndices[0])
+                        val p2x = event.getX(fingerIndices[1])
+                        val p2y = event.getY(fingerIndices[1])
+
+                        prevFocalX = (p1x + p2x) * 0.5f
+                        prevFocalY = (p1y + p2y) * 0.5f
+                        prevFingerDistance = hypot(p2x - p1x, p2y - p1y)
+                        prevFingerAngle = Math.atan2((p2y - p1y).toDouble(), (p2x - p1x).toDouble()).toFloat()
                     }
                 } else {
                     isNavigating = false
@@ -286,7 +301,7 @@ class SmartDrawView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_MOVE -> {
-                if (fingerCount == 2 && isNavigating && !scaleDetector.isInProgress) {
+                if (fingerCount == 2 && isNavigating) {
                     val fingerIndices = mutableListOf<Int>()
                     for (i in 0 until event.pointerCount) {
                         if (event.getToolType(i) == MotionEvent.TOOL_TYPE_FINGER) {
@@ -294,26 +309,58 @@ class SmartDrawView @JvmOverloads constructor(
                         }
                     }
                     if (fingerIndices.size >= 2) {
-                        val focalX = (event.getX(fingerIndices[0]) + event.getX(fingerIndices[1])) * 0.5f
-                        val focalY = (event.getY(fingerIndices[0]) + event.getY(fingerIndices[1])) * 0.5f
+                        val p1x = event.getX(fingerIndices[0])
+                        val p1y = event.getY(fingerIndices[0])
+                        val p2x = event.getX(fingerIndices[1])
+                        val p2y = event.getY(fingerIndices[1])
 
-                        // Pan delta
-                        val dx = focalX - prevFocalX
-                        val dy = focalY - prevFocalY
+                        val currFocalX = (p1x + p2x) * 0.5f
+                        val currFocalY = (p1y + p2y) * 0.5f
+                        val currFingerDistance = hypot(p2x - p1x, p2y - p1y)
+                        val currFingerAngle = Math.atan2((p2y - p1y).toDouble(), (p2x - p1x).toDouble()).toFloat()
 
-                        viewportTranslationX += dx
-                        viewportTranslationY += dy
+                        if (prevFingerDistance > 0f) {
+                            val rawScaleRatio = currFingerDistance / prevFingerDistance
+                            val oldScale = viewportScale
+                            val targetScale = (oldScale * rawScaleRatio).coerceIn(MIN_SCALE, MAX_SCALE)
+                            val actualScaleRatio = if (oldScale > 0f) targetScale / oldScale else 1.0f
 
-                        prevFocalX = focalX
-                        prevFocalY = focalY
+                            var deltaAngle = currFingerAngle - prevFingerAngle
+                            while (deltaAngle > Math.PI.toFloat()) deltaAngle -= (2 * Math.PI).toFloat()
+                            while (deltaAngle <= -Math.PI.toFloat()) deltaAngle += (2 * Math.PI).toFloat()
 
-                        requestRender()
+                            // Focal-anchored affine update:
+                            // T_new = F_curr + R(deltaTheta) * (s * (T_prev - F_prev))
+                            val dx = viewportTranslationX - prevFocalX
+                            val dy = viewportTranslationY - prevFocalY
+
+                            val scaledDx = actualScaleRatio * dx
+                            val scaledDy = actualScaleRatio * dy
+
+                            val cosD = kotlin.math.cos(deltaAngle)
+                            val sinD = kotlin.math.sin(deltaAngle)
+
+                            val rotX = cosD * scaledDx - sinD * scaledDy
+                            val rotY = sinD * scaledDx + cosD * scaledDy
+
+                            viewportTranslationX = currFocalX + rotX
+                            viewportTranslationY = currFocalY + rotY
+                            viewportScale = targetScale
+
+                            var newRotation = viewportRotationDegrees + Math.toDegrees(deltaAngle.toDouble()).toFloat()
+                            while (newRotation > 180f) newRotation -= 360f
+                            while (newRotation <= -180f) newRotation += 360f
+                            viewportRotationDegrees = newRotation
+
+                            requestRender()
+                        }
+
+                        prevFocalX = currFocalX
+                        prevFocalY = currFocalY
+                        prevFingerDistance = currFingerDistance
+                        prevFingerAngle = currFingerAngle
                     }
                     return true
-                } else if (fingerCount == 2 && isNavigating) {
-                    // When scale gesture is in progress, update prevFocal from detector focus
-                    prevFocalX = scaleDetector.focusX
-                    prevFocalY = scaleDetector.focusY
                 }
                 return true
             }
@@ -321,7 +368,7 @@ class SmartDrawView @JvmOverloads constructor(
             MotionEvent.ACTION_POINTER_UP -> {
                 val remainingFingers = fingerCount - 1
                 if (remainingFingers == 2) {
-                    // Update focal point for remaining two fingers
+                    // Update focal point and distance for remaining two fingers
                     val remainingIndices = mutableListOf<Int>()
                     for (i in 0 until event.pointerCount) {
                         if (i != event.actionIndex && event.getToolType(i) == MotionEvent.TOOL_TYPE_FINGER) {
@@ -329,8 +376,15 @@ class SmartDrawView @JvmOverloads constructor(
                         }
                     }
                     if (remainingIndices.size >= 2) {
-                        prevFocalX = (event.getX(remainingIndices[0]) + event.getX(remainingIndices[1])) * 0.5f
-                        prevFocalY = (event.getY(remainingIndices[0]) + event.getY(remainingIndices[1])) * 0.5f
+                        val p1x = event.getX(remainingIndices[0])
+                        val p1y = event.getY(remainingIndices[0])
+                        val p2x = event.getX(remainingIndices[1])
+                        val p2y = event.getY(remainingIndices[1])
+
+                        prevFocalX = (p1x + p2x) * 0.5f
+                        prevFocalY = (p1y + p2y) * 0.5f
+                        prevFingerDistance = hypot(p2x - p1x, p2y - p1y)
+                        prevFingerAngle = Math.atan2((p2y - p1y).toDouble(), (p2x - p1x).toDouble()).toFloat()
                     }
                 } else {
                     isNavigating = false

@@ -76,15 +76,20 @@ class CompositingShader {
     }
 
     init {
-        // Quad with vertices in [0, 1] x [0, 1] for positioning via model matrix,
-        // and matching UV coordinates [0, 1] x [0, 1].
+        // Quad with vertices in [0, 1] x [0, 1] for positioning via model matrix.
+        // Y-Axis Inversion Fix: In OpenGL texture coordinates, (0,0) is bottom-left and (1,1) is top-left.
+        // For our upright canvas quad (top-left at y=0, bottom-left at y=1):
+        // top-left (x=0, y=0) -> (u=0, v=1.0)
+        // top-right (x=1, y=0) -> (u=1, v=1.0)
+        // bottom-left (x=0, y=1) -> (u=0, v=0.0)
+        // bottom-right (x=1, y=1) -> (u=1, v=0.0)
         val quadVertices = floatArrayOf(
-            0.0f, 0.0f,  0.0f, 0.0f,
-            1.0f, 0.0f,  1.0f, 0.0f,
-            0.0f, 1.0f,  0.0f, 1.0f,
-            0.0f, 1.0f,  0.0f, 1.0f,
-            1.0f, 0.0f,  1.0f, 0.0f,
-            1.0f, 1.0f,  1.0f, 1.0f
+            0.0f, 0.0f,  0.0f, 1.0f,
+            1.0f, 0.0f,  1.0f, 1.0f,
+            0.0f, 1.0f,  0.0f, 0.0f,
+            0.0f, 1.0f,  0.0f, 0.0f,
+            1.0f, 0.0f,  1.0f, 1.0f,
+            1.0f, 1.0f,  1.0f, 0.0f
         )
         quadBuffer = ByteBuffer.allocateDirect(quadVertices.size * 4)
             .order(ByteOrder.nativeOrder())

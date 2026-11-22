@@ -30,6 +30,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnSmudge: Button
     private lateinit var btnLoadImage: Button
     private lateinit var btnAutoColor: Button
+    private lateinit var btnClear: Button
     private lateinit var btnResetView: Button
     private lateinit var btnRunHarness: Button
     private lateinit var statusText: TextView
@@ -51,6 +52,7 @@ class MainActivity : AppCompatActivity() {
         btnSmudge = findViewById(R.id.btnSmudge)
         btnLoadImage = findViewById(R.id.btnLoadImage)
         btnAutoColor = findViewById(R.id.btnAutoColor)
+        btnClear = findViewById(R.id.btnClear)
         btnResetView = findViewById(R.id.btnResetView)
         btnRunHarness = findViewById(R.id.btnRunHarness)
         statusText = findViewById(R.id.statusText)
@@ -86,6 +88,11 @@ class MainActivity : AppCompatActivity() {
             drawView.useReferenceColors = !drawView.useReferenceColors
             updateAutoColorButton()
             statusText.text = if (drawView.useReferenceColors) "Auto color sampling enabled" else "Manual color mode"
+        }
+
+        btnClear.setOnClickListener {
+            drawView.clearCanvas()
+            statusText.text = "Canvas cleared"
         }
 
         btnResetView.setOnClickListener {
@@ -184,6 +191,7 @@ class MainActivity : AppCompatActivity() {
         btnSmudge.isEnabled = enabled
         btnLoadImage.isEnabled = enabled
         btnAutoColor.isEnabled = enabled
+        btnClear.isEnabled = enabled
         btnResetView.isEnabled = enabled
         btnRunHarness.isEnabled = enabled
     }

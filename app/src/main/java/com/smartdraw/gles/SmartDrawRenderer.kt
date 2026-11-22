@@ -41,6 +41,11 @@ class SmartDrawRenderer(
         scratchFbo.unbind()
     }
 
+    fun clearCanvas(r: Float = 1.0f, g: Float = 1.0f, b: Float = 1.0f, a: Float = 1.0f) {
+        clear(r, g, b, a)
+    }
+
+
     fun loadBaseBitmap(bitmap: Bitmap) {
         baseFbo.loadBitmap(bitmap)
         blitFbo(baseFbo, scratchFbo)
@@ -266,7 +271,8 @@ class SmartDrawRenderer(
         viewportH: Int = height,
         translationX: Float = 0f,
         translationY: Float = 0f,
-        scale: Float = 1.0f
+        scale: Float = 1.0f,
+        rotationDegrees: Float = 0f
     ) {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, targetFramebuffer)
         GLES30.glViewport(0, 0, viewportW, viewportH)
@@ -275,10 +281,6 @@ class SmartDrawRenderer(
         GLES30.glClearColor(0.1176f, 0.1176f, 0.1176f, 1.0f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
 
-        // Calculate MVP matrix transforming quad [0, 1] x [0, 1] into screen pixels and then NDC
-        // Canvas quad in screen pixel coords:
-        // x = translationX + S * width * qx
-        // y = translationY + S * height * qy
         // Screen orthographic projection: left=0, right=viewportW, bottom=viewportH, top=0
         val projMatrix = FloatArray(16)
         Matrix.orthoM(projMatrix, 0, 0f, viewportW.toFloat(), viewportH.toFloat(), 0f, -1.0f, 1.0f)
@@ -286,6 +288,7 @@ class SmartDrawRenderer(
         val modelMatrix = FloatArray(16)
         Matrix.setIdentityM(modelMatrix, 0)
         Matrix.translateM(modelMatrix, 0, translationX, translationY, 0f)
+        Matrix.rotateM(modelMatrix, 0, rotationDegrees, 0f, 0f, 1f)
         Matrix.scaleM(modelMatrix, 0, scale * width.toFloat(), scale * height.toFloat(), 1.0f)
 
         val mvpMatrix = FloatArray(16)
