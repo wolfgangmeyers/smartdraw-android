@@ -5,6 +5,9 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.opengl.GLES30
 import android.opengl.GLUtils
+import com.smartdraw.core.Point2D
+import kotlin.math.max
+import kotlin.math.min
 
 class ReferenceLayer {
     var textureId: Int = 0
@@ -16,9 +19,11 @@ class ReferenceLayer {
     var opacity: Float = 0.3f
     var isVisible: Boolean = true
 
-    fun setBitmap(source: Bitmap) {
+    fun setBitmap(source: Bitmap, updateGlTexture: Boolean = true) {
         bitmap = source
-        updateTexture()
+        if (updateGlTexture) {
+            updateTexture()
+        }
     }
 
     fun updateTexture() {
@@ -65,6 +70,64 @@ class ReferenceLayer {
         val g = Color.green(color) / 255.0f
         val b = Color.blue(color) / 255.0f
         return floatArrayOf(r, g, b, a)
+    }
+
+    fun computeAverageCoveredColor(
+        points: List<Point2D>,
+        radii: List<Float>,
+        defaultColor: Int = Color.BLACK
+    ): Int {
+        val b = bitmap ?: return defaultColor
+        val w = b.width
+        val h = b.height
+        if (w <= 0 || h <= 0 || points.isEmpty()) return defaultColor
+
+        var totalR = 0L
+        var totalG = 0L
+        var totalB = 0L
+        var count = 0L
+        val visited = HashSet<Long>()
+
+        for (i in points.indices) {
+            val pt = points[i]
+            val r = if (i < radii.size) radii[i] else (radii.lastOrNull() ?: 20f)
+            val minX = max(0, (pt.x - r).toInt())
+            val maxX = min(w - 1, (pt.x + r).toInt())
+            val minY = max(0, (pt.y - r).toInt())
+            val maxY = min(h - 1, (pt.y + r).toInt())
+
+            val step = max(1, (r / 6f).toInt())
+            var py = minY
+            while (py <= maxY) {
+                var px = minX
+                while (px <= maxX) {
+                    val dx = px - pt.x
+                    val dy = py - pt.y
+                    if (dx * dx + dy * dy <= r * r) {
+                        val key = (px.toLong() shl 32) or (py.toLong() and 0xFFFFFFFFL)
+                        if (visited.add(key)) {
+                            val pixel = b.getPixel(px, py)
+                            totalR += Color.red(pixel)
+                            totalG += Color.green(pixel)
+                            totalB += Color.blue(pixel)
+                            count++
+                        }
+                    }
+                    px += step
+                }
+                py += step
+            }
+        }
+
+        if (count == 0L) {
+            val first = points.first()
+            return sampleColor(first.x, first.y, defaultColor)
+        }
+
+        val avgR = (totalR / count).toInt().coerceIn(0, 255)
+        val avgG = (totalG / count).toInt().coerceIn(0, 255)
+        val avgB = (totalB / count).toInt().coerceIn(0, 255)
+        return Color.rgb(avgR, avgG, avgB)
     }
 
     fun release() {

@@ -24,9 +24,11 @@ class CompositingShader {
 
         uniform sampler2D u_baseLayer;
         uniform sampler2D u_referenceLayer;
+        uniform sampler2D u_activeStrokeLayer;
 
         uniform float u_referenceOpacity;
         uniform bool u_renderReference;
+        uniform bool u_hasActiveStroke;
         uniform vec4 u_backgroundColor;
 
         out vec4 fragColor;
@@ -45,6 +47,10 @@ class CompositingShader {
             vec4 reference = texture(u_referenceLayer, v_texCoord);
 
             vec4 result = blend(bg, baseImage, 1.0);
+            if (u_hasActiveStroke) {
+                vec4 activeStroke = texture(u_activeStrokeLayer, v_texCoord);
+                result = blend(result, activeStroke, 1.0);
+            }
             if (u_renderReference) {
                 result = blend(result, reference, u_referenceOpacity);
             }
@@ -58,8 +64,10 @@ class CompositingShader {
 
     private val uBaseLayerLoc: Int = GLES30.glGetUniformLocation(program, "u_baseLayer")
     private val uReferenceLayerLoc: Int = GLES30.glGetUniformLocation(program, "u_referenceLayer")
+    private val uActiveStrokeLayerLoc: Int = GLES30.glGetUniformLocation(program, "u_activeStrokeLayer")
     private val uReferenceOpacityLoc: Int = GLES30.glGetUniformLocation(program, "u_referenceOpacity")
     private val uRenderReferenceLoc: Int = GLES30.glGetUniformLocation(program, "u_renderReference")
+    private val uHasActiveStrokeLoc: Int = GLES30.glGetUniformLocation(program, "u_hasActiveStroke")
     private val uBackgroundColorLoc: Int = GLES30.glGetUniformLocation(program, "u_backgroundColor")
 
     private val quadBuffer: FloatBuffer
@@ -86,6 +94,7 @@ class CompositingShader {
         referenceTextureId: Int,
         referenceOpacity: Float,
         renderReference: Boolean,
+        activeStrokeTextureId: Int = 0,
         backgroundColor: FloatArray = floatArrayOf(1.0f, 1.0f, 1.0f, 1.0f)
     ) {
         GLES30.glUseProgram(program)
@@ -97,6 +106,12 @@ class CompositingShader {
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, referenceTextureId)
         GLES30.glUniform1i(uReferenceLayerLoc, 1)
+
+        val hasActive = activeStrokeTextureId != 0
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE2)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (hasActive) activeStrokeTextureId else 0)
+        GLES30.glUniform1i(uActiveStrokeLayerLoc, 2)
+        GLES30.glUniform1i(uHasActiveStrokeLoc, if (hasActive) 1 else 0)
 
         GLES30.glUniform1f(uReferenceOpacityLoc, referenceOpacity)
         GLES30.glUniform1i(uRenderReferenceLoc, if (renderReference) 1 else 0)
@@ -114,6 +129,7 @@ class CompositingShader {
 
         GLES30.glDisableVertexAttribArray(aPositionLoc)
         GLES30.glDisableVertexAttribArray(aTexCoordLoc)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
     }
 
     fun release() {

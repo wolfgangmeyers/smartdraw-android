@@ -11,8 +11,11 @@ class TouchInputHandler(
     var baseOpacity: Float = 1.0f,
     var pressureGamma: Float = 1.0f,
     var minPressureFactor: Float = 0.1f,
+    var transformPoint: ((Float, Float) -> Pair<Float, Float>)? = null,
+    private val onStrokeStart: ((Point2D) -> Unit)? = null,
     private val onStrokeSegment: (BezierCurve, Float, Float) -> Unit, // curve, radius, opacity
-    private val onStrokeEnd: (() -> Unit)? = null
+    private val onStrokeEnd: (() -> Unit)? = null,
+    private val onStrokeCancel: (() -> Unit)? = null
 ) {
     private val smoother = StrokeSmoother { curve ->
         // Evaluate dynamic radius and opacity from curve endpoints
@@ -26,34 +29,39 @@ class TouchInputHandler(
     fun handleTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                val (cx, cy) = transformPoint?.invoke(event.x, event.y) ?: Pair(event.x, event.y)
                 val p = normalizePressure(event.pressure)
-                smoother.onPointDown(Point2D(event.x, event.y, p))
+                val pt = Point2D(cx, cy, p)
+                onStrokeStart?.invoke(pt)
+                smoother.onPointDown(pt)
                 return true
             }
 
             MotionEvent.ACTION_MOVE -> {
                 val historySize = event.historySize
                 for (h in 0 until historySize) {
-                    val hx = event.getHistoricalX(h)
-                    val hy = event.getHistoricalY(h)
+                    val (hx, hy) = transformPoint?.invoke(event.getHistoricalX(h), event.getHistoricalY(h))
+                        ?: Pair(event.getHistoricalX(h), event.getHistoricalY(h))
                     val hp = normalizePressure(event.getHistoricalPressure(h))
                     smoother.onPointMove(Point2D(hx, hy, hp))
                 }
+                val (cx, cy) = transformPoint?.invoke(event.x, event.y) ?: Pair(event.x, event.y)
                 val p = normalizePressure(event.pressure)
-                smoother.onPointMove(Point2D(event.x, event.y, p))
+                smoother.onPointMove(Point2D(cx, cy, p))
                 return true
             }
 
             MotionEvent.ACTION_UP -> {
+                val (cx, cy) = transformPoint?.invoke(event.x, event.y) ?: Pair(event.x, event.y)
                 val p = normalizePressure(event.pressure)
-                smoother.onPointUp(Point2D(event.x, event.y, p))
+                smoother.onPointUp(Point2D(cx, cy, p))
                 onStrokeEnd?.invoke()
                 return true
             }
 
             MotionEvent.ACTION_CANCEL -> {
                 smoother.reset()
-                onStrokeEnd?.invoke()
+                onStrokeCancel?.invoke() ?: onStrokeEnd?.invoke()
                 return true
             }
         }
