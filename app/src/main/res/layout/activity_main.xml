@@ -7,12 +7,18 @@
 
     <!-- Top Toolbar -->
     <HorizontalScrollView
+        android:id="@+id/toolbarScrollView"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="#2D2D2D"
-        android:padding="8dp">
+        android:scrollbars="none"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp">
 
         <LinearLayout
+            android:id="@+id/toolbarLayout"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
@@ -34,6 +40,14 @@
                 android:textColor="#FFFFFF" />
 
             <Button
+                android:id="@+id/btnLoadImage"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Load Image"
+                android:textColor="#FFFFFF" />
+
+            <Button
                 android:id="@+id/btnAutoColor"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -49,16 +63,42 @@
                 android:text="Run Test Harness"
                 android:textColor="#FFFFFF" />
 
-            <TextView
-                android:id="@+id/statusText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:text="Ready"
-                android:textColor="#00E676" />
-
         </LinearLayout>
     </HorizontalScrollView>
+
+    <!-- Dedicated Status Banner -->
+    <LinearLayout
+        android:id="@+id/statusBanner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#242424"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp">
+
+        <ProgressBar
+            android:id="@+id/progressBar"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:indeterminate="true"
+            android:visibility="gone"
+            android:layout_marginEnd="8dp" />
+
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Ready"
+            android:textSize="13sp"
+            android:textColor="#00E676"
+            android:singleLine="true"
+            android:ellipsize="end" />
+
+    </LinearLayout>
 
     <!-- Canvas -->
     <com.smartdraw.SmartDrawView

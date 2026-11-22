@@ -48,18 +48,43 @@ class ReferenceLayer {
         }
     }
 
-    fun sampleColor(x: Float, y: Float, defaultColor: Int = Color.BLACK): Int {
+    fun sampleColor(
+        canvasX: Float,
+        canvasY: Float,
+        canvasWidth: Float = 1024f,
+        canvasHeight: Float = 1024f,
+        defaultColor: Int = Color.BLACK
+    ): Int {
         val b = bitmap ?: return defaultColor
-        val w = b.width
-        val h = b.height
-        if (w <= 0 || h <= 0) return defaultColor
-        val px = x.toInt().coerceIn(0, w - 1)
-        val py = y.toInt().coerceIn(0, h - 1)
-        return b.getPixel(px, py)
+        val rw = b.width.toFloat()
+        val rh = b.height.toFloat()
+        if (rw <= 0f || rh <= 0f || canvasWidth <= 0f || canvasHeight <= 0f) return defaultColor
+
+        // Letterbox / aspect-fit mapping from canvas to reference bitmap
+        val scale = minOf(canvasWidth / rw, canvasHeight / rh)
+        val drawnW = rw * scale
+        val drawnH = rh * scale
+        val offsetX = (canvasWidth - drawnW) * 0.5f
+        val offsetY = (canvasHeight - drawnH) * 0.5f
+
+        val imgX = ((canvasX - offsetX) / scale).toInt()
+        val imgY = ((canvasY - offsetY) / scale).toInt()
+
+        if (imgX !in 0 until b.width || imgY !in 0 until b.height) {
+            return defaultColor
+        }
+
+        return b.getPixel(imgX, imgY)
     }
 
-    fun sampleColorNormalized(x: Float, y: Float, defaultColor: Int = Color.BLACK): FloatArray {
-        val color = sampleColor(x, y, defaultColor)
+    fun sampleColorNormalized(
+        canvasX: Float,
+        canvasY: Float,
+        canvasWidth: Float = 1024f,
+        canvasHeight: Float = 1024f,
+        defaultColor: Int = Color.BLACK
+    ): FloatArray {
+        val color = sampleColor(canvasX, canvasY, canvasWidth, canvasHeight, defaultColor)
         val a = Color.alpha(color) / 255.0f
         val r = Color.red(color) / 255.0f
         val g = Color.green(color) / 255.0f

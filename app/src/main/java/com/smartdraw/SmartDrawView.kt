@@ -80,12 +80,20 @@ class SmartDrawView @JvmOverloads constructor(
 
     override fun onDrawFrame(gl: GL10?) {
         val r = rendererInstance ?: return
-        r.composite()
+        // Render composite output directly to the default screen framebuffer (0)
+        r.composite(targetFramebuffer = 0, viewportW = surfaceWidth, viewportH = surfaceHeight)
     }
 
     fun setReferenceImage(bitmap: Bitmap) {
         queueEvent {
             rendererInstance?.referenceLayer?.setBitmap(bitmap)
+            requestRender()
+        }
+    }
+
+    fun loadPaintingBitmap(bitmap: Bitmap) {
+        queueEvent {
+            rendererInstance?.loadBaseBitmap(bitmap)
             requestRender()
         }
     }

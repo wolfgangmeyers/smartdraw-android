@@ -1,7 +1,9 @@
 package com.smartdraw.gles
 
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.opengl.GLES30
+import android.opengl.GLUtils
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -93,6 +95,27 @@ class GlesFbo(val width: Int, val height: Int) {
         }
         bitmap.setPixels(pixelArray, 0, width, 0, 0, width, height)
         return bitmap
+    }
+
+    fun loadBitmap(source: Bitmap) {
+        val matrix = Matrix().apply { postScale(1.0f, -1.0f) }
+        val flipped = Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+        val scaled = if (flipped.width != width || flipped.height != height) {
+            Bitmap.createScaledBitmap(flipped, width, height, true)
+        } else {
+            flipped
+        }
+
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+        GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, scaled, 0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+
+        if (scaled != flipped && scaled != source) {
+            scaled.recycle()
+        }
+        if (flipped != source) {
+            flipped.recycle()
+        }
     }
 
     fun release() {

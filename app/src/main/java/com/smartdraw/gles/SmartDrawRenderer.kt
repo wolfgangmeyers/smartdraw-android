@@ -40,6 +40,11 @@ class SmartDrawRenderer(
         scratchFbo.unbind()
     }
 
+    fun loadBaseBitmap(bitmap: Bitmap) {
+        baseFbo.loadBitmap(bitmap)
+        blitFbo(baseFbo, scratchFbo)
+    }
+
     fun drawPoint(
         x: Float,
         y: Float,
@@ -153,7 +158,7 @@ class SmartDrawRenderer(
 
         for (pt in samples) {
             if (useReferenceColors) {
-                val c = referenceLayer.sampleColor(pt.x, pt.y, defaultColor)
+                val c = referenceLayer.sampleColor(pt.x, pt.y, width.toFloat(), height.toFloat(), defaultColor)
                 lastR = Color.red(c) / 255f
                 lastG = Color.green(c) / 255f
                 lastB = Color.blue(c) / 255f
@@ -254,8 +259,9 @@ class SmartDrawRenderer(
         }
     }
 
-    fun composite() {
-        compositeFbo.bind()
+    fun composite(targetFramebuffer: Int = compositeFbo.framebufferId, viewportW: Int = width, viewportH: Int = height) {
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, targetFramebuffer)
+        GLES30.glViewport(0, 0, viewportW, viewportH)
         GLES30.glDisable(GLES30.GL_BLEND)
 
         compositingShader.renderComposite(
@@ -266,13 +272,13 @@ class SmartDrawRenderer(
             backgroundColor = solidBackgroundColor
         )
 
-        compositeFbo.unbind()
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
     }
 
     fun exportBaseBitmap(): Bitmap = baseFbo.readBitmap()
 
     fun exportCompositeBitmap(): Bitmap {
-        composite()
+        composite(compositeFbo.framebufferId, width, height)
         return compositeFbo.readBitmap()
     }
 
