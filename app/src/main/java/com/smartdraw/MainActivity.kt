@@ -25,6 +25,7 @@ import com.smartdraw.harness.ReferenceImageGenerator
 import com.smartdraw.project.AutoSaveManager
 import com.smartdraw.project.PaintingProject
 import com.smartdraw.project.ProjectManager
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -38,7 +39,14 @@ class MainActivity : AppCompatActivity(),
     ToolSettingsBottomSheet.Listener,
     GalleryDialogFragment.Listener {
 
-    var ioDispatcher = Dispatchers.IO
+    companion object {
+        private const val TAG = "SmartDraw-Main"
+        private const val MAX_IMAGE_DIMENSION = 2048
+        const val MAX_GPU_TEXTURE_DIMENSION = 8192
+        var defaultIoDispatcher: CoroutineDispatcher = Dispatchers.IO
+    }
+
+    var ioDispatcher: CoroutineDispatcher = defaultIoDispatcher
 
     lateinit var drawView: SmartDrawView
     private lateinit var btnActiveTool: ImageButton
@@ -60,11 +68,7 @@ class MainActivity : AppCompatActivity(),
 
     private lateinit var pickImageLauncher: ActivityResultLauncher<String>
 
-    companion object {
-        private const val TAG = "SmartDraw-Main"
-        private const val MAX_IMAGE_DIMENSION = 2048
-        const val MAX_GPU_TEXTURE_DIMENSION = 8192
-    }
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

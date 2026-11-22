@@ -8,7 +8,7 @@ import android.widget.SeekBar
 import android.widget.TextView
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.materialswitch.MaterialSwitch
+import androidx.appcompat.widget.SwitchCompat
 
 class MoreOptionsBottomSheet : BottomSheetDialogFragment() {
 
@@ -34,7 +34,7 @@ class MoreOptionsBottomSheet : BottomSheetDialogFragment() {
     private lateinit var sliderOpacity: SeekBar
     private lateinit var btnToggleSourceVisibility: MaterialButton
     private lateinit var btnChangeSourceImage: MaterialButton
-    private lateinit var switchRatchetMode: MaterialSwitch
+    private lateinit var switchRatchetMode: SwitchCompat
 
     companion object {
         const val TAG = "MoreOptionsBottomSheet"

@@ -15,6 +15,17 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 class MainActivityUiTest {
 
+    @org.junit.Before
+    fun setUp() {
+        MainActivity.defaultIoDispatcher = kotlinx.coroutines.Dispatchers.Main
+    }
+
+    @org.junit.After
+    fun tearDown() {
+        MainActivity.defaultIoDispatcher = kotlinx.coroutines.Dispatchers.IO
+    }
+
+
     @Test
     fun testToolbarButtonsExistAndAreImageButtons() {
         val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
@@ -117,5 +128,23 @@ class MainActivityUiTest {
         assertEquals("Portrait Test", activity.currentProject?.title)
         assertEquals(1200, activity.drawView.canvasWidth)
         assertEquals(1600, activity.drawView.canvasHeight)
+    }
+    @Test
+    fun testClickEllipsisOpensMoreOptionsBottomSheet() {
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        val activity = controller.get()
+        org.robolectric.shadows.ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+        val btnMoreOptions: ImageButton = activity.findViewById(R.id.btnMoreOptions)
+        assertNotNull(btnMoreOptions)
+        btnMoreOptions.performClick()
+        org.robolectric.shadows.ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+        val fragment = activity.supportFragmentManager.findFragmentByTag(MoreOptionsBottomSheet.TAG) as? MoreOptionsBottomSheet
+        assertNotNull(fragment)
+        assertNotNull(fragment?.view)
+        val switchRatchet: androidx.appcompat.widget.SwitchCompat? = fragment?.view?.findViewById(R.id.switchRatchetMode)
+        assertNotNull(switchRatchet)
+        assertEquals(activity.drawView.isRatchetEnabled, switchRatchet?.isChecked)
     }
 }
