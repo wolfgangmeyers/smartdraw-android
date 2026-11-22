@@ -15,6 +15,7 @@ SmartDraw Android is a high-performance native Android painting application desi
 - **Coordinate Transformation Pipeline**: Exact mathematical mapping bridging Screen Space $(x_s, y_s)$, Canvas Space $(x_c, y_c)$, and Reference Image Space $(x_r, y_r)$, with MVP matrix integration in the GLES 3.0 compositing pass.
 - **Bezier Curve Stroke Smoothing**: Multi-point quadratic and cubic Bezier curve fitting with arc-length parameterization to guarantee uniform stamp spacing independent of touch sampling frequency or drawing speed.
 - **Dynamic Reference Color Auto-Picker**: Coordinate-translated continuous sampling of the reference image along the stroke path, automatically adjusting the brush color in real time.
+- **Autodesk Sketchbook-Inspired Persistence & Project Gallery**: Robust multi-painting management with discrete project folders, lossless canvas preservation, automatic downscaled gallery thumbnails, active project restoration on launch, and a zero-data-loss 5-second inactivity debounced auto-save engine.
 - **Steady Improvement Algorithmic Painting Loop**: Automated candidate stroke evaluation against the reference image using mean squared error (MSE) difference metrics and acceptance criteria.
 - **Pragmatic Bezier Test Harness**: Codegen test runner exercising 30–200 varied Bezier strokes (S-curves, loops, arcs, pressure ramps) with headless and on-device rendering verification.
 
@@ -333,6 +334,23 @@ Autonomous painting engine that iterates toward the reference image:
 
 ---
 
+## 9. Pragmatic Bezier Test Harness (`BezierTestHarness.kt`)
+
+Built for automated verification and regression testing:
+
+- **Codegen Stroke Patterns**:
+  - Parametric Archimedean spirals, S-curves, figure-eights, loops, and straight lines.
+  - Dynamically modulated pressure ramps from 0.1 to 1.0.
+  - Batch execution of 30 to 200 strokes per test painting.
+- **Test Suites**:
+  - `test_bezier_curves_showcase`: 50 multi-curvature Bezier paths.
+  - `test_stylus_pressure_dynamics`: Pressure taper, light-to-heavy ramps, flow test.
+  - `test_smudge_shader_blend`: Multi-directional smudge blending across colors.
+  - `test_steady_improvement_painting`: 200-stroke automated iterative convergence.
+- **Export**: Direct offscreen rendering to 1024×1024 PNG files in `test-output/`.
+
+---
+
 ## 10. Source Image Import & Dynamic Canvas Resolution Scaling
 
 ### 10.1 Aspect Ratio Preservation Architecture
@@ -367,16 +385,290 @@ When a user selects an image from the device gallery or file provider (via "Load
         $$S_{\text{fit}} = \min\left(1.0, \min\left(\frac{W_{\text{surface}}}{W_{\text{canvas}}}, \frac{H_{\text{surface}}}{H_{\text{canvas}}}\right)\right)$$
         and centers the newly proportioned canvas inside the display viewport.
 
+---
 
-Built for automated verification and regression testing:
+## 11. Persistence, Auto-Save & Project Gallery Architecture
 
-- **Codegen Stroke Patterns**:
-  - Parametric Archimedean spirals, S-curves, figure-eights, loops, and straight lines.
-  - Dynamically modulated pressure ramps from 0.1 to 1.0.
-  - Batch execution of 30 to 200 strokes per test painting.
-- **Test Suites**:
-  - `test_bezier_curves_showcase`: 50 multi-curvature Bezier paths.
-  - `test_stylus_pressure_dynamics`: Pressure taper, light-to-heavy ramps, flow test.
-  - `test_smudge_shader_blend`: Multi-directional smudge blending across colors.
-  - `test_steady_improvement_painting`: 200-stroke automated iterative convergence.
-- **Export**: Direct offscreen rendering to 1024×1024 PNG files in `test-output/`.
+Inspired by the workflow and reliability model of Autodesk Sketchbook, SmartDraw Android implements a non-destructive, zero-data-loss document lifecycle and multi-painting project gallery. Users never explicitly manage file save dialogs or risk losing work due to app termination, process death, or device reboots.
+
+### 11.1 Painting Project Model & Storage Hierarchy
+
+Each painting document is isolated within its own dedicated directory in internal sandbox storage (`context.filesDir/projects/<uuid>/`). Internal storage guarantees private isolation, zero runtime storage permission requirements across all Android API levels, and automatic cleanup on app uninstallation.
+
+```
+filesDir/
+├── projects/
+│   ├── active_project.json                     # Atomic pointer to the currently active project ID
+│   ├── 8f4e2c0a-6b31-4c12-9e8a-123456789abc/   # Project Directory (<UUIDv4>)
+│   │   ├── painting.png                        # Lossless RGBA8888 canvas base layer export
+│   │   ├── source.png                          # Optional source / reference image
+│   │   ├── thumbnail.png                       # Aspect-ratio preserving downscaled preview (≤ 384x384)
+│   │   └── metadata.json                       # Project configuration, dimensions, timestamps, tool state
+│   ├── 3d1a7f82-90bc-41de-8422-fedcba987654/
+│   │   ├── painting.png
+│   │   ├── thumbnail.png
+│   │   └── metadata.json
+│   └── ...
+```
+
+#### 11.1.1 Artifact Specification
+
+1. **`painting.png`**:
+   - Direct lossless PNG compression (`Bitmap.CompressFormat.PNG`, quality = 100) of the offscreen canvas base layer FBO (`baseFbo`).
+   - Bit depth: 32-bit RGBA (8 bits per channel), preserving all brush strokes, smudge blending, and transparency/opacity levels at native canvas resolution $(W_{\text{canvas}} \times H_{\text{canvas}})$.
+2. **`source.png`** *(Optional)*:
+   - Untransformed reference/source image bitmap imported by the user. If no reference image has been loaded for the project, this file is omitted from the folder.
+   - Stored in lossless PNG or compressed format directly matching the imported source image, used to populate `ReferenceLayer` and `ReferenceColorSampler` upon project load.
+3. **`thumbnail.png`**:
+   - Downscaled, aspect-ratio preserving composite representation used for visual rendering in gallery grid tiles.
+   - Sizing invariant: Scaled such that $\max(W_{\text{thumb}}, H_{\text{thumb}}) \le 384\text{ px}$:
+     $$s_{\text{thumb}} = \frac{384.0}{\max(W_{\text{canvas}}, H_{\text{canvas}})}$$
+     $$W_{\text{thumb}} = \max(1, \text{round}(W_{\text{canvas}} \times s_{\text{thumb}})), \quad H_{\text{thumb}} = \max(1, \text{round}(H_{\text{canvas}} \times s_{\text{thumb}}))$$
+   - Generated with high-quality bilinear filtering (`Bitmap.createScaledBitmap(..., filter = true)`) from the composite or base canvas bitmap and saved as PNG or high-quality WebP/JPEG.
+4. **`metadata.json`**:
+   - JSON serialized project manifest detailing geometric, chronological, and UI/tool configuration states.
+   - Strict schema definition:
+     ```json
+     {
+       "id": "8f4e2c0a-6b31-4c12-9e8a-123456789abc",
+       "title": "Untitled Painting",
+       "canvasWidth": 2400,
+       "canvasHeight": 3200,
+       "createdAt": 1700643600000,
+       "updatedAt": 1700645400000,
+       "referenceOpacity": 0.5,
+       "isReferenceVisible": true,
+       "useReferenceColors": true,
+       "activeTool": "PENCIL",
+       "brushSize": 24.0,
+       "brushOpacity": 0.85
+     }
+     ```
+   - Field semantics:
+     - `id` (`String`): Canonical UUIDv4 identifier matching the project directory name.
+     - `title` (`String`): Human-readable display name (e.g., "Untitled Painting", "Portrait Study").
+     - `canvasWidth` / `canvasHeight` (`Int`): Intrinsic resolution $(W_{\text{canvas}}, H_{\text{canvas}})$ in pixels.
+     - `createdAt` / `updatedAt` (`Long`): Epoch milliseconds indicating creation and most recent save timestamps.
+     - `referenceOpacity` (`Float`): Reference overlay layer opacity $\in [0.0, 1.0]$.
+     - `isReferenceVisible` (`Boolean`): Visibility toggle state for the reference layer.
+     - `useReferenceColors` (`Boolean`): AutoColor auto-picker active state.
+     - `activeTool` (`String`): Identifier for the active tool (`PENCIL`, `SMUDGE`, `ERASER`).
+     - `brushSize` (`Float`): Canvas-space radius / diameter for brush stamping.
+     - `brushOpacity` (`Float`): Stroke opacity factor $\in [0.0, 1.0]$.
+5. **`active_project.json`**:
+   - Located in the root `projects/` directory, acting as an atomic pointer to the current document:
+     ```json
+     {
+       "activeProjectId": "8f4e2c0a-6b31-4c12-9e8a-123456789abc"
+     }
+     ```
+
+#### 11.1.2 Atomic File I/O & Crash Resilience
+
+To prevent corrupt or partial project states caused by sudden power loss or process kill mid-write, all disk write operations adhere to atomic file swapping (`AtomicFile` or write-to-temp-then-rename pattern):
+1. Payload is written completely to `<filename>.tmp` in the target project folder.
+2. File descriptors are explicitly flushed to non-volatile disk (`FileOutputStream.fd.sync()`).
+3. Atomic rename replaces the target file (`renameTo()`), guaranteeing that readers never encounter a half-written bitmap or truncated JSON payload.
+
+---
+
+### 11.2 5-Second Inactivity Auto-Save Engine
+
+SmartDraw employs an event-driven, debounced auto-save architecture designed to eliminate frame drops and memory bandwidth contention while the user is actively painting.
+
+```
+[Stylus ACTION_UP] ──┐
+[Tool Change]       ──┼──> Reset 5-Second Debounce Timer ──(5s Inactivity)──> Trigger Auto-Save
+[Opacity / Size]    ──┤                                                        │
+[Source Import]     ──┘                                                        ▼
+                                                                     [Background Coroutine]
+[Lifecycle: onPause/onStop] ──────────────────(Immediate Dispatch)──> ├─ exportBaseBitmap() (GL Thread)
+                                                                       ├─ Compress painting.png
+                                                                       ├─ Generate thumbnail.png
+                                                                       └─ Write metadata.json (Atomic)
+```
+
+#### 11.2.1 Debounce Trigger Sources & Reset Mechanism
+
+A high-resolution countdown timer (interval $\Delta t_{\text{idle}} = 5000\text{ ms}$) is scheduled on the main thread / coroutine dispatcher. The countdown resets to $5.0\text{ seconds}$ on any of the following user actions:
+- **Stylus Stroke Completion**: Fired on `MotionEvent.ACTION_UP` or `ACTION_CANCEL` after committing Bezier stamps to `baseFbo`. Intermediary `ACTION_MOVE` events do not trigger disk I/O.
+- **Tool Mode Modification**: Switching between Pencil, Smudge, and Eraser.
+- **Brush Parameter Adjustment**: Adjusting brush size or brush opacity sliders.
+- **Reference Layer State Changes**: Adjusting reference opacity, toggling visibility, or enabling/disabling AutoColor.
+- **Source Image Import / Mutation**: Importing a new reference image or altering canvas dimensions.
+
+#### 11.2.2 Asynchronous Snapshot Execution Pipeline
+
+When $5\text{ seconds}$ of user inactivity elapse without further interaction:
+1. **Dirty Flag Verification**: A volatile `isDirty` boolean flag is checked. If no canvas strokes or parameter mutations occurred since the last snapshot, the engine skips disk operations entirely.
+2. **GL Thread Pixel Extraction (`exportBaseBitmap`)**:
+   - The engine requests a pixel readback from the Render Thread.
+   - Inside the active EGL context, `SmartDrawRenderer.exportBaseBitmap()` binds `baseFbo` (`GL_FRAMEBUFFER`), executes `glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixelBuffer)`, and constructs a native Android `Bitmap` with vertical row flipping to convert OpenGL bottom-up coordinates to Android top-down bitmap coordinates.
+3. **Background Coroutine Dispatch (`Dispatchers.IO`)**:
+   - Pixel compression and file I/O are strictly offloaded from both the Main UI Thread and Render Thread to a dedicated I/O coroutine worker pool.
+   - **Step A**: Compresses the base bitmap to `painting.png.tmp` via `Bitmap.CompressFormat.PNG` and atomically renames to `painting.png`.
+   - **Step B**: Creates a filtered downscaled bitmap adhering to the $\le 384\text{ px}$ thumbnail bounding box, compresses to `thumbnail.png.tmp`, and atomically renames to `thumbnail.png`.
+   - **Step C**: Updates `metadata.json` with current timestamps (`updatedAt = System.currentTimeMillis()`), resolution, reference layer parameters, and tool settings via atomic write.
+   - **Step D**: Recycles temporary bitmap allocations and clears `isDirty = false`.
+
+#### 11.2.3 Immediate Lifecycle Auto-Save (`onPause`, `onStop`)
+
+Android activities can be paused or terminated abruptly by the system under memory pressure:
+- In `Activity.onPause()` and `Activity.onStop()`, any running 5-second debounce countdown is immediately canceled.
+- If `isDirty == true`, an immediate synchronous or blocking coroutine (`runBlocking(Dispatchers.IO)`) snapshot is executed before releasing EGL/OpenGL contexts or relinquishing foreground priority.
+- This guarantees zero stroke loss even if the user switches apps or powers off the display mid-session.
+
+---
+
+### 11.3 Session Restoration & Launch Workflow
+
+When SmartDraw Android launches (cold start, process recreation after death, or task switch):
+
+```
+                        App Launch / Cold Start
+                                   │
+                                   ▼
+                      Read active_project.json
+                                   │
+                    ┌──────────────┴──────────────┐
+                    │ Found Valid Project ID      │ Missing / Empty
+                    ▼                             ▼
+         Load projects/<id>/metadata.json   Create Default Project
+                    │                       (1024x1024, Blank Canvas)
+                    ▼                             │
+         Check files & dimensions                 ▼
+                    │                       Save to projects/<uuid>/
+                    ▼                             │
+    Reallocate FBOs (W_canvas, H_canvas)          ▼
+                    │                       Write active_project.json
+                    ▼                             │
+    Restore baseFbo from painting.png             │
+                    │                             │
+    Load source.png (if exists) ─────────┐        │
+                    │                    │        │
+    Restore Tool, Opacity, AutoColor <───┘        │
+                    │                             │
+                    ▼                             ▼
+              Initialize Viewport Camera (Fit, Centered, 1.0x, 0°)
+                                   │
+                                   ▼
+                             Ready to Paint
+```
+
+#### 11.3.1 Step-by-Step Restoration Protocol
+
+1. **Active Project Resolution**:
+   - Reads `filesDir/projects/active_project.json`.
+   - If the file exists and references an existing directory `<uuid>/` containing valid `metadata.json` and `painting.png`:
+     - Deserializes `metadata.json` into a `ProjectMetadata` entity.
+   - If `active_project.json` is missing, corrupt, or references a deleted project:
+     - Scans `filesDir/projects/` for the project directory with the most recent `updatedAt` timestamp.
+     - If no valid project exists on disk, invokes the **New Project Initialization** routine (creates `<uuid>/`, clears a default $1024 \times 1024$ white canvas, writes baseline metadata, and updates `active_project.json`).
+2. **GPU Texture & FBO Reallocation**:
+   - Extracts canvas resolution $(W_{\text{canvas}}, H_{\text{canvas}})$ from metadata.
+   - Calls `SmartDrawRenderer.resizeCanvas(width, height)`, cleanly reallocating `baseFbo`, `scratchFbo`, `compositeFbo`, and `activeStrokeFbo` with matching dimensions and depth/stencil buffers.
+3. **Canvas Base Layer Restoration**:
+   - Decodes `painting.png` using `BitmapFactory.decodeFile()` with `inPreferredConfig = Bitmap.Config.ARGB_8888`.
+   - Binds `baseFbo` texture and uploads pixel data via `GLUtils.texImage2D()`.
+   - Also synchronizes `scratchFbo` to preserve smudge blending history.
+4. **Reference Layer & Sampling Restoration**:
+   - Inspects project folder for `source.png`.
+   - If present:
+     - Decodes `source.png` into a reference bitmap.
+     - Calls `ReferenceLayer.setBitmap(bitmap)`, uploading the reference texture to the GPU and configuring pixel sampling arrays in `ReferenceColorSampler`.
+     - Restores `referenceOpacity` and `isReferenceVisible`.
+     - Restores `useReferenceColors` auto-picker state.
+   - If absent:
+     - Disables reference rendering and AutoColor mode.
+5. **Tool & Brush Parameter Restoration**:
+   - Restores `activeTool` (`PENCIL`, `SMUDGE`, `ERASER`), updating the top toolbar icon and bottom sheet selection cards.
+   - Restores `brushSize` and `brushOpacity` sliders and preview indicators.
+6. **Viewport Camera Normalization**:
+   - To ensure consistent orientation upon document entry, the camera resets to canonical aspect-fit:
+     $$\theta = 0^\circ$$
+     $$S_{\text{fit}} = \min\left(1.0, \min\left(\frac{W_{\text{surface}}}{W_{\text{canvas}}}, \frac{H_{\text{surface}}}{H_{\text{canvas}}}\right)\right)$$
+     $$T_x = \frac{W_{\text{surface}} - (S_{\text{fit}} \cdot W_{\text{canvas}})}{2}, \quad T_y = \frac{H_{\text{surface}} - (S_{\text{fit}} \cdot H_{\text{canvas}})}{2}$$
+   - The drawing canvas opens centered, upright, and perfectly framed on the screen.
+
+---
+
+### 11.4 Gallery View & Multi-Painting Workflow
+
+The Gallery interface provides a visual, responsive multi-painting management hub accessible directly from the top toolbar overflow menu ("Gallery" / "My Paintings").
+
+#### 11.4.1 UI Layout & Presentation Model
+
+- **Modal Presentation**: Presented as a full-screen overlay or bottom sheet with an app bar containing:
+  - Title: "Paintings Gallery"
+  - Action button: "+ New Painting"
+  - Close button: Dismisses gallery, returning to the active painting.
+- **Adaptive Grid Structure**:
+  - Two-column grid on portrait phones; three- to four-column grid on landscape tablets.
+  - Each gallery tile displays:
+    - **Visual Card**: Rounded card container with elevated surface background.
+    - **Thumbnail Preview (`ImageView`)**: Aspect-fit rendering of `thumbnail.png` against a subtle checkered background.
+    - **Active Badge**: A visual accent indicator (e.g., colored border or "Current" pill) designating the currently opened project.
+    - **Title Label**: Project title from `metadata.json` (editable inline or via context menu).
+    - **Metadata Caption**: Resolution and relative timestamp: e.g., `2400 × 3200 • Updated 5m ago`.
+    - **Overflow Actions (Three Dots)**: "Open", "Duplicate", "Export PNG", and "Delete".
+
+#### 11.4.2 Project Switching Sequence
+
+When the user taps a different painting tile in the gallery:
+1. **Immediate Pre-Switch Save**:
+   - The engine flushes any pending debounced auto-save for the currently loaded project immediately.
+   - `exportBaseBitmap()` runs, and `painting.png`, `thumbnail.png`, and `metadata.json` are written to disk.
+2. **Active Project Re-pointing**:
+   - Updates `active_project.json` with the selected project's UUID.
+3. **Editor Pipeline Re-initialization**:
+   - Executes the Session Restoration sequence (§11.3) for the newly selected project.
+   - Clears existing undo/redo buffers and smudge scratch buffers.
+   - Reallocates FBOs to the target project's resolution.
+   - Loads base pixels, reference image, tool settings, and resets the camera viewport to aspect-fit.
+4. **Gallery Dismissal**:
+   - The gallery modal closes, seamlessly presenting the newly selected painting in the editor.
+
+#### 11.4.3 New Painting Creation Sequence
+
+When the user taps "+ New Painting" (or selects "New Canvas" from overflow options):
+1. **Current Project Flush**:
+   - Immediately commits and saves the active project.
+2. **Project Workspace Allocation**:
+   - Generates a new UUIDv4: `val newId = UUID.randomUUID().toString()`.
+   - Creates directory `filesDir/projects/<newId>/`.
+3. **Default Dimension Initialization**:
+   - If created from scratch: defaults to device screen resolution or standard $1024 \times 1024$ / $2048 \times 2048$ canvas.
+   - If created via Source Image Import (§10): dynamically adopts aspect ratio and scaled dimensions $(W_{\text{canvas}}, H_{\text{canvas}})$.
+4. **Canvas Reset & Baseline Persistence**:
+   - Clears `baseFbo` and `scratchFbo` to opaque white (`[1.0, 1.0, 1.0, 1.0]`).
+   - Writes initial `metadata.json` with default pencil settings, timestamp, and dimensions.
+   - Generates initial blank `painting.png` and `thumbnail.png`.
+   - Sets `active_project.json` pointing to `<newId>`.
+5. **Editor Transition**:
+   - Resets viewport camera to $(S = 1.0, \theta = 0^\circ, \text{centered})$.
+   - Closes gallery and presents the fresh blank canvas to the user.
+
+#### 11.4.4 Project Deletion & Fallback Invariants
+
+When a user deletes a painting from the gallery:
+1. **Directory Purge**:
+   - Recursively deletes the project folder `filesDir/projects/<targetId>/` and all contained artifacts (`painting.png`, `source.png`, `thumbnail.png`, `metadata.json`).
+2. **Active Painting Deletion Handling**:
+   - If the deleted project is **not** the currently active project, the active project and editor state remain unaffected.
+   - If the deleted project **is** the currently active project:
+     - Scans `filesDir/projects/` for all remaining valid projects, sorting descending by `updatedAt`.
+     - **Branch A (Remaining Projects Exist)**: Selects the most recently updated remaining project, writes its ID to `active_project.json`, and loads it into the editor via §11.3.
+     - **Branch B (No Remaining Projects)**: If the gallery becomes completely empty, automatically invokes the New Painting Creation sequence (§11.4.3), ensuring the editor always holds a valid, writable canvas state and never encounters null pointer exceptions.
+
+---
+
+### 11.5 Edge Cases & State Invariants Matrix
+
+| Scenario / Edge Case | Behavioral Specification & Defensive Strategy |
+| :--- | :--- |
+| **Rapid Stylus Stroking** | While drawing continuous strokes, each `ACTION_UP` pushes the 5-second timer forward. Disk I/O is never triggered during active drawing runs, ensuring smooth 60–120 FPS render performance. |
+| **Sudden Process Death / Battery Depletion** | Immediate lifecycle save in `onPause()` / `onStop()` combined with atomic file writes (`AtomicFile` / temp file swap) guarantees that the document on disk is never corrupt and retains all strokes drawn up to the last 5-second idle window or background transition. |
+| **Low Disk Space (Storage Exhaustion)** | Before writing `painting.png`, the system verifies available bytes via `StatFs(context.filesDir.path)`. If free space falls below $10\text{ MB}$, a non-intrusive warning notification is raised, and thumbnail downsampling is prioritized over multi-version scratch copies. |
+| **Corrupted `metadata.json`** | If JSON parsing fails on project load, the loader falls back to reading bitmap dimensions directly from `painting.png` via `BitmapFactory.Options.inJustDecodeBounds = true`, recreates default metadata, and restores canvas pixels safely. |
+| **Large Canvas Memory Footprint** | For high-resolution canvases (e.g., $4096 \times 4096$), bitmap encoding is executed on `Dispatchers.IO` using a stream buffer (`BufferedOutputStream`), and large bitmaps are recycled immediately after encoding to prevent Dalvik/ART GC thrashing. |
+| **External File Alterations** | Project directories reside strictly inside internal sandbox storage (`filesDir`), isolating them from external media scanners, third-party file managers, and accidental user file deletions. |
