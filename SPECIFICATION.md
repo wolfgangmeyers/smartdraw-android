@@ -10,6 +10,9 @@ SmartDraw Android is a high-performance native Android painting application desi
 
 - **Hardware-Accelerated GLES 3.0 Pipeline**: Offscreen Framebuffer Objects (FBOs) and custom GLSL fragment shaders reproducing circle brush stamping, directional color smudging, reference image overlay blending, and composite output.
 - **Stylus & Touch Pressure Dynamics**: Real-time continuous sampling of `MotionEvent.getPressure()`, historical batch events, and customizable pressure response curves (linear, sigmoid, power) mapped to brush radius and opacity.
+- **Stylus / Pen-Only Drawing & Palm Rejection**: Explicit discrimination of hardware input tools (`TOOL_TYPE_STYLUS` / `TOOL_TYPE_ERASER` vs `TOOL_TYPE_FINGER`). Paint strokes are strictly emitted by active/passive styluses; single finger touches and resting palms are rejected without emitting paint.
+- **Two-Finger Fluid Viewport Navigation**: Smooth 2D affine viewport transformation (pan and pinch-to-zoom centered on gesture focal point) driven strictly by two-finger gestures, accompanied by instant viewport reset controls.
+- **Coordinate Transformation Pipeline**: Exact mathematical mapping bridging Screen Space $(x_s, y_s)$, Canvas Space $(x_c, y_c)$, and Reference Image Space $(x_r, y_r)$, with MVP matrix integration in the GLES 3.0 compositing pass.
 - **Bezier Curve Stroke Smoothing**: Multi-point quadratic and cubic Bezier curve fitting with arc-length parameterization to guarantee uniform stamp spacing independent of touch sampling frequency or drawing speed.
 - **Dynamic Reference Color Auto-Picker**: Coordinate-translated continuous sampling of the reference image along the stroke path, automatically adjusting the brush color in real time.
 - **Steady Improvement Algorithmic Painting Loop**: Automated candidate stroke evaluation against the reference image using mean squared error (MSE) difference metrics and acceptance criteria.
@@ -39,7 +42,7 @@ SmartDraw uses a multi-layer composition pipeline:
 1. **Background Layer**: Generates or uploads a checkered transparency pattern or solid background color.
 2. **Reference Image Layer**: GPU texture (`GL_TEXTURE_2D`) containing the target painting image, with uniform opacity (`u_referenceOpacity`) and toggleable visibility (`u_renderReference`).
 3. **Drawing Layer (Base Layer)**: Main user painting canvas stored in an FBO texture target (`GL_RGBA8`).
-4. **Compositing Pass**: Fullscreen quad shader combining background, drawing layer, reference layer, and UI overlay with alpha blending.
+4. **Compositing Pass**: Fullscreen or transformed quad shader combining background, drawing layer, reference layer, and UI overlay with alpha blending. During viewport navigation (pan and zoom), the canvas quad is rendered transformed by the Viewport Model-View-Projection (MVP) matrix directly into the screen framebuffer (`GL_FRAMEBUFFER 0`).
 
 ### 3.2 Circle Brush Shader (`CircleBrushShader.kt`)
 
@@ -141,9 +144,107 @@ void main() {
 
 ---
 
-## 4. Input & Pressure Dynamics
+## 4. Input Architecture, Stylus Drawing & Viewport Navigation
 
-### 4.1 Native MotionEvent Handling (`TouchInputHandler.kt`)
+### 4.1 Stylus / Pen-Only Drawing Requirement
+
+To deliver professional-grade palm rejection and an ergonomic drawing experience on stylus-equipped devices (Samsung Galaxy Tab S-Pen, Lenovo Precision Pen, USI styluses, Google Pixel Tablet Pen), SmartDraw enforces a strict separation between drawing tools and touch gestures:
+
+1. **Stroke Emission Eligibility**:
+   - Paint strokes, smudge strokes, and Bezier point sequences strictly require `MotionEvent.getToolType(pointerIndex) == MotionEvent.TOOL_TYPE_STYLUS` or `MotionEvent.TOOL_TYPE_ERASER`.
+   - Finger touches (`TOOL_TYPE_FINGER`), mouse clicks (`TOOL_TYPE_MOUSE`), and unknown pointer types (`TOOL_TYPE_UNKNOWN`) must **NEVER** draw, smudge, or emit paint stamps onto the canvas FBO.
+2. **Hardware Palm Rejection**:
+   - Single-finger touches, resting palms, or wrist contacts report `TOOL_TYPE_FINGER` or `ACTION_POINTER_DOWN` with finger tools. All such touches are completely rejected and ignored during drawing.
+   - When a stylus is active on screen (`ACTION_DOWN` or `ACTION_MOVE` with `TOOL_TYPE_STYLUS`), any simultaneous finger touches are discarded, preventing unintended canvas navigation or stray artifact generation.
+   - Eraser hardware button / tail eraser: Styluses reporting `TOOL_TYPE_ERASER` or `BUTTON_STYLUS_PRIMARY` automatically map to canvas erasing / clearing behaviors without finger gesture interference.
+
+### 4.2 Two-Finger Viewport Navigation (Pan & Pinch-to-Zoom)
+
+Finger touches are reserved exclusively for viewport manipulation:
+
+1. **Gesture Disambiguation**:
+   - **0 fingers / Stylus only**: Drawing / smudging active (if stylus pressed). Viewport remains stationary.
+   - **1 finger touch**: Rejected / ignored (no drawing, no panning). This prevents accidental one-finger drags when resting fingers or palms touch the glass before or after a stroke.
+   - **2 fingers touch**: Activates Viewport Navigation mode (pan and pinch-to-zoom).
+   - **3+ fingers touch**: Ignored or reserved for system multi-touch gestures (e.g., three-finger tap for undo/redo).
+2. **Viewport State Model**:
+   The canvas viewport is governed by a 2D affine transformation:
+   - Translation offsets: $(T_x, T_y)$ in screen pixels.
+   - Uniform scale: $S \in [S_{\min}, S_{\max}]$ where $S_{\min} = 0.1$ ($10\%$ canvas size) and $S_{\max} = 10.0$ ($1000\%$ zoom). Default scale $S_0 = 1.0$.
+3. **Pinch-to-Zoom & Pan Gesture Math**:
+   - Given two finger contact points $P_{1} = (x_1, y_1)$ and $P_2 = (x_2, y_2)$ at time $t$:
+     $$\text{Focal Point } F = \left(\frac{x_1 + x_2}{2}, \frac{y_1 + y_2}{2}\right)$$
+     $$\text{Finger Distance } D = \sqrt{(x_2 - x_1)^2 + (y_2 - y_1)^2}$$
+   - Between consecutive gesture frames $(t-1 \to t)$ with focal delta $(\Delta F_x, \Delta F_y)$ and scale ratio $r = D_t / D_{t-1}$:
+     $$S_{\text{new}} = \text{clamp}(S \times r, S_{\min}, S_{\max})$$
+     To zoom anchored at the focal point $F = (F_x, F_y)$, the translation updates as:
+     $$T_x' = F_x - \frac{S_{\text{new}}}{S} (F_x - T_x) + \Delta F_x$$
+     $$T_y' = F_y - \frac{S_{\text{new}}}{S} (F_y - T_y) + \Delta F_y$$
+4. **Viewport Reset Mechanisms**:
+   - **Double-Tap with Two Fingers**: Instantly animates or snaps the viewport back to default centered fit:
+     $$S = 1.0, \quad T_x = \frac{W_{\text{screen}} - W_{\text{canvas}}}{2}, \quad T_y = \frac{H_{\text{screen}} - H_{\text{canvas}}}{2}$$
+   - **Toolbar Reset Button**: A dedicated reset button in the UI overlay executes the same viewport re-centering and scale normalization.
+
+### 4.3 Coordinate Space & Transformation Pipeline
+
+SmartDraw operates across three distinct coordinate spaces:
+
+1. **Screen Space $(x_s, y_s)$**: Raw pixel coordinates received from Android `MotionEvent` in the `SmartDrawView` bounds $[0, W_{\text{screen}}] \times [0, H_{\text{screen}}]$.
+2. **Canvas Space $(x_c, y_c)$**: Intrinsic texture coordinates of the drawing FBO $[0, W_{\text{canvas}}] \times [0, H_{\text{canvas}}]$ (e.g., $1024 \times 1024$).
+3. **Reference Image Space $(x_r, y_r)$**: Normalized or pixel coordinates of the loaded reference image $[0, W_{\text{ref}}] \times [0, H_{\text{ref}}]$.
+
+#### 4.3.1 Forward & Inverse Viewport Transforms
+
+The forward transform maps Canvas Space to Screen Space:
+$$\begin{bmatrix} x_s \\ y_s \end{bmatrix} = S \begin{bmatrix} x_c \\ y_c \end{bmatrix} + \begin{bmatrix} T_x \\ T_y \end{bmatrix}$$
+
+The inverse transform maps Screen Space to Canvas Space:
+$$\begin{bmatrix} x_c \\ y_c \end{bmatrix} = \frac{1}{S} \begin{bmatrix} x_s - T_x \\ y_s - T_y \end{bmatrix}$$
+
+#### 4.3.2 Stylus Event Mapping
+
+When stylus `MotionEvent` samples arrive at $(x_s, y_s)$ (including both current and batched historical coordinates):
+1. Coordinates are inverted to canvas space:
+   $$x_c = \frac{x_s - T_x}{S}, \quad y_c = \frac{y_s - T_y}{S}$$
+2. The resulting $(x_c, y_c)$ points are passed into the Bezier spline smoother (`StrokeSmoother.kt`).
+3. Stroke bounding boxes, stamp step sizes, and minimum/maximum extent evaluations are computed directly in Canvas Space so brush geometry remains invariant to zoom level.
+4. Brush radius scale behavior: Brush radius $R$ is defined in Canvas Space. At higher zoom levels, the stroke displays proportionally larger on screen, but writes the identical pixel footprint into the offscreen FBO.
+
+#### 4.3.3 Reference Color Sampling Mapping
+
+When `useReferenceColors` is enabled, the auto-picker (`ReferenceColorSampler.kt`) samples color at $(x_c, y_c)$:
+1. Canvas aspect ratio scaling and letterbox offsets:
+   $$\text{scale}_{\text{ref}} = \min\left(\frac{W_{\text{canvas}}}{W_{\text{ref}}}, \frac{H_{\text{canvas}}}{H_{\text{ref}}}\right)$$
+   $$\text{offset}_x = \frac{W_{\text{canvas}} - (W_{\text{ref}} \times \text{scale}_{\text{ref}})}{2}, \quad \text{offset}_y = \frac{H_{\text{canvas}} - (H_{\text{ref}} \times \text{scale}_{\text{ref}})}{2}$$
+2. Reference pixel coordinates:
+   $$x_r = \frac{x_c - \text{offset}_x}{\text{scale}_{\text{ref}}}, \quad y_r = \frac{y_c - \text{offset}_y}{\text{scale}_{\text{ref}}}$$
+3. Because sampling operates in Canvas Space, zooming or panning the viewport never shifts or misaligns the sampled reference colors relative to the canvas content.
+
+#### 4.3.4 Viewport MVP Matrix in GLES Compositing Pass
+
+The Drawing FBO texture remains unscaled and unpanned in texture memory ($W_{\text{canvas}} \times H_{\text{canvas}}$). During the final composite pass to the display `SurfaceView` (`GL_FRAMEBUFFER 0`):
+- An orthographic projection matrix $M_{\text{proj}}$ projects screen pixel space $[0, W_{\text{screen}}] \times [H_{\text{screen}}, 0]$ to NDC $[-1, 1] \times [-1, 1]$.
+- A model matrix $M_{\text{model}}$ translates by $(T_x, T_y)$ and scales by $(S \times W_{\text{canvas}}, S \times H_{\text{canvas}})$.
+- Combined MVP Matrix:
+  $$M_{\text{mvp}} = M_{\text{proj}} \times M_{\text{model}}$$
+- The quad vertex shader applies $gl\_Position = M_{\text{mvp}} \times vec4(a\_position, 0.0, 1.0)$, transforming the canvas quad on screen smoothly at 60–120 FPS without altering FBO pixel data.
+
+### 4.4 Edge Cases & State Invariants
+
+| Edge Case | Behavioral Specification & Resolution |
+| :--- | :--- |
+| **Stylus draws while two fingers touch** | **Stylus Priority**: If a stylus is actively in contact with the display (`ACTION_DOWN` / `ACTION_MOVE`), two-finger gesture recognition is suppressed. The stylus stroke continues without viewport jitter. If a two-finger pinch/pan is already in progress and the stylus contacts the screen, the two-finger gesture is terminated (`CANCEL`), and stylus stroke processing begins immediately from the contact point. |
+| **Pen Hover Events (`ACTION_HOVER_MOVE`)** | Stylus hover events update the cursor/brush preview ring on the screen overlay in Screen Space. Hover events do **not** trigger drawing, do not allocate Bezier points, and do not disrupt two-finger gestures. |
+| **Stylus Button Depressed** | If the stylus primary button is held during stroke inception, the stroke can be routed to an alternate tool (e.g., Smudge or Eraser mode) while maintaining the stylus-only invariant. |
+| **Orientation / Screen Resize** | On configuration change or window resize $(W_{\text{old}}, H_{\text{old}}) \to (W_{\text{new}}, H_{\text{new}})$, viewport translation is adjusted to preserve the canvas center point relative to the viewport: $T_x' = T_x + \frac{W_{\text{new}} - W_{\text{old}}}{2}$, $T_y' = T_y + \frac{H_{\text{new}} - H_{\text{old}}}{2}$. The scale factor $S$ is clamped to $[S_{\min}, S_{\max}]$. FBO contents are preserved without re-allocation. |
+| **Multi-touch Palm Latency** | When an edge palm touch registers before the stylus tip lands, the palm's `TOOL_TYPE_FINGER` ensures no stroke starts. When the stylus tip touches down, the stylus pointer ID is isolated, and all existing finger pointer IDs are discarded. |
+| **Out-of-Bounds Stroke Drawing** | When drawing while zoomed in such that $(x_c, y_c)$ falls outside $[0, W_{\text{canvas}}] \times [0, H_{\text{canvas}}]$, Bezier curves and stamps continue to be evaluated; stamps falling outside the FBO viewport are naturally clipped by OpenGL scissor / viewport bounds without memory or coordinate corruption. |
+
+---
+
+## 5. Input & Pressure Dynamics
+
+### 5.1 Native MotionEvent Handling (`TouchInputHandler.kt`)
 
 Supports fingers, active styluses (S-Pen, Apple Pencil over bridge, USI styluses), and passive styluses:
 
@@ -160,7 +261,7 @@ Supports fingers, active styluses (S-Pen, Apple Pencil over bridge, USI styluses
 
 ---
 
-## 5. Bezier Curve Stroke Smoothing (`BezierCurve.kt`, `StrokeSmoother.kt`)
+## 6. Bezier Curve Stroke Smoothing (`BezierCurve.kt`, `StrokeSmoother.kt`)
 
 Raw touch coordinates arrive as discrete polygons. SmartDraw applies real-time cubic Bezier spline fitting:
 
@@ -176,7 +277,7 @@ Raw touch coordinates arrive as discrete polygons. SmartDraw applies real-time c
 
 ---
 
-## 6. Reference Color Auto-Picker (`ReferenceColorSampler.kt`)
+## 7. Reference Color Auto-Picker (`ReferenceColorSampler.kt`)
 
 Enables guided painting where the brush automatically matches colors from an underlying photograph or artwork:
 
@@ -189,7 +290,7 @@ Enables guided painting where the brush automatically matches colors from an und
 
 ---
 
-## 7. Steady Improvement Algorithmic Painting Loop (`SteadyImprovementLoop.kt`)
+## 8. Steady Improvement Algorithmic Painting Loop (`SteadyImprovementLoop.kt`)
 
 Autonomous painting engine that iterates toward the reference image:
 
@@ -208,7 +309,7 @@ Autonomous painting engine that iterates toward the reference image:
 
 ---
 
-## 8. Pragmatic Bezier Test Harness (`BezierTestHarness.kt`)
+## 9. Pragmatic Bezier Test Harness (`BezierTestHarness.kt`)
 
 Built for automated verification and regression testing:
 
