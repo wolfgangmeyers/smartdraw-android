@@ -15,6 +15,7 @@ SmartDraw Android is a high-performance native Android painting application desi
 - **Coordinate Transformation Pipeline**: Exact mathematical mapping bridging Screen Space $(x_s, y_s)$, Canvas Space $(x_c, y_c)$, and Reference Image Space $(x_r, y_r)$, with MVP matrix integration in the GLES 3.0 compositing pass.
 - **Bezier Curve Stroke Smoothing**: Multi-point quadratic and cubic Bezier curve fitting with arc-length parameterization to guarantee uniform stamp spacing independent of touch sampling frequency or drawing speed.
 - **Dynamic Reference Color Auto-Picker**: Coordinate-translated continuous sampling of the reference image along the stroke path, automatically adjusting the brush color in real time.
+- **Ratchet Mode (Distance-Monotonic Guided Painting)**: Non-destructive interactive painting guard that guarantees every committed human or automated stroke monotonically reduces or preserves distance to the reference image, rolling back retrograde strokes.
 - **Autodesk Sketchbook-Inspired Persistence & Project Gallery**: Robust multi-painting management with discrete project folders, lossless canvas preservation, automatic downscaled gallery thumbnails, active project restoration on launch, and a zero-data-loss 5-second inactivity debounced auto-save engine.
 - **Steady Improvement Algorithmic Painting Loop**: Automated candidate stroke evaluation against the reference image using mean squared error (MSE) difference metrics and acceptance criteria.
 - **Pragmatic Bezier Test Harness**: Codegen test runner exercising 30–200 varied Bezier strokes (S-curves, loops, arcs, pressure ramps) with headless and on-device rendering verification.
@@ -439,6 +440,7 @@ filesDir/
        "referenceOpacity": 0.5,
        "isReferenceVisible": true,
        "useReferenceColors": true,
+       "isRatchetEnabled": false,
        "activeTool": "PENCIL",
        "brushSize": 24.0,
        "brushOpacity": 0.85
@@ -452,6 +454,7 @@ filesDir/
      - `referenceOpacity` (`Float`): Reference overlay layer opacity $\in [0.0, 1.0]$.
      - `isReferenceVisible` (`Boolean`): Visibility toggle state for the reference layer.
      - `useReferenceColors` (`Boolean`): AutoColor auto-picker active state.
+     - `isRatchetEnabled` (`Boolean`): Ratchet mode distance-monotonic painting guard state.
      - `activeTool` (`String`): Identifier for the active tool (`PENCIL`, `SMUDGE`, `ERASER`).
      - `brushSize` (`Float`): Canvas-space radius / diameter for brush stamping.
      - `brushOpacity` (`Float`): Stroke opacity factor $\in [0.0, 1.0]$.
@@ -672,3 +675,121 @@ When a user deletes a painting from the gallery:
 | **Corrupted `metadata.json`** | If JSON parsing fails on project load, the loader falls back to reading bitmap dimensions directly from `painting.png` via `BitmapFactory.Options.inJustDecodeBounds = true`, recreates default metadata, and restores canvas pixels safely. |
 | **Large Canvas Memory Footprint** | For high-resolution canvases (e.g., $4096 \times 4096$), bitmap encoding is executed on `Dispatchers.IO` using a stream buffer (`BufferedOutputStream`), and large bitmaps are recycled immediately after encoding to prevent Dalvik/ART GC thrashing. |
 | **External File Alterations** | Project directories reside strictly inside internal sandbox storage (`filesDir`), isolating them from external media scanners, third-party file managers, and accidental user file deletions. |
+
+---
+
+## 12. Ratchet Mode (Distance-Monotonic / Improvement-Only Painting)
+
+Ratchet Mode is an interactive painting constraint and guided assistance engine that guarantees every stroke committed to the canvas monotonically preserves or decreases the distance (difference) between the painting and the underlying reference image. Retrograde strokes—strokes that introduce color divergence, cover correct details with errors, or overshoot reference accuracy—are automatically discarded without mutating the base canvas.
+
+### 12.1 Mathematical Objective & Invariant
+
+#### 12.1.1 The Ratchet Invariant
+Let $P$ represent the current committed painting state on the canvas, $I_{\text{ref}}$ represent the target reference image, and $S$ denote an incoming paint stroke defined by its geometry, color, and opacity stamps. Let $P'$ denote the candidate canvas state produced by blending stroke $S$ over $P$:
+$$P' = P \oplus S$$
+
+Let $\Omega_S \subset [0, W_{\text{canvas}}] \times [0, H_{\text{canvas}}]$ represent the canvas spatial bounding region affected by stroke $S$. The Ratchet Invariant stipulates that candidate state $P'$ is accepted and committed to the canvas base layer if and only if:
+$$\text{Distance}(P', I_{\text{ref}}) \le \text{Distance}(P, I_{\text{ref}})$$
+evaluated over the affected bounding region $\Omega_S$. If:
+$$\text{Distance}(P', I_{\text{ref}}) > \text{Distance}(P, I_{\text{ref}})$$
+the stroke is discarded / rolled back with zero mutation to $P$.
+
+#### 12.1.2 Monotonic Convergence Property
+By induction over successive accepted strokes $S_1, S_2, \dots, S_n$ generating canvas states $P_1, P_2, \dots, P_n$:
+$$\text{Distance}(P_k, I_{\text{ref}}) \le \text{Distance}(P_{k-1}, I_{\text{ref}}) \quad \forall k \ge 1$$
+Under Ratchet Mode, the canvas distance function is strictly non-increasing over all committed regions. The user is physically prevented from making the painting diverge from the reference image, allowing fearless, rapid, and expressive exploratory brushwork.
+
+---
+
+### 12.2 Similarity & Distance Metrics
+
+The difference metric $\text{Distance}(P, I_{\text{ref}})$ over bounding domain $\Omega$ can be evaluated using Mean Absolute Error (MAE / L1 norm) or Mean Squared Error (MSE / L2 norm) across the RGB color channels:
+
+#### 12.2.1 Mean Absolute Error (MAE / L1 Metric)
+$$\text{Loss}(P, I_{\text{ref}}) = \frac{1}{3 \cdot |\Omega|} \sum_{(x, y) \in \Omega} (|P_R(x, y) - I_{R}(x, y)| + |P_G(x,y) - I_{G}(x,y)| + |P_B(x,y) - I_{B}(x,y)|)$$
+where:
+- $|\Omega| = W_\Omega \times H_\Omega$ is the total pixel count within the bounding region.
+- $P_c(x, y) \in [0.0, 1.0]$ and $I_c(x, y) \in [0.0, 1.0]$ denote the color intensities for channel $c \in \{R, G, B\}$.
+
+#### 12.2.2 Mean Squared Error (MSE / L2 Metric)
+$$\text{Loss}_{\text{MSE}}(P, I_{\text{ref}}) = \frac{1}{3 \cdot |\Omega|} \sum_{(x, y) \in \Omega} \left( (P_R(x, y) - I_R(x, y))^2 + (P_G(x, y) - I_G(x, y))^2 + (P_B(x, y) - I_B(x, y))^2 \right)$$
+
+#### 12.2.3 Acceptance Differential ($\Delta \text{Loss}$)
+The change in loss induced by the candidate stroke is:
+$$\Delta \text{Loss} = \text{Loss}(P', I_{\text{ref}}) - \text{Loss}(P, I_{\text{ref}})$$
+- **Acceptance Condition**: $\Delta \text{Loss} \le 0$ (error decreases or remains unchanged).
+- **Rejection Condition**: $\Delta \text{Loss} > 0$ (error increases).
+
+---
+
+### 12.3 Execution Pipeline & Non-Destructive Rollback
+
+The execution architecture relies on offscreen GLES 3.0 Framebuffer Object (FBO) isolation to maintain real-time 60–120 FPS stroke responsiveness while deferring final base canvas mutation until post-stroke validation:
+
+```
+[Stylus ACTION_DOWN / ACTION_MOVE]
+               │
+               ▼
+   Stamp into activeStrokeFbo ──(Zero mutation to baseFbo)
+               │
+   CompositingShader blends activeStrokeFbo + baseFbo on screen (Live Preview)
+               │
+[Stylus ACTION_UP]
+               │
+               ▼
+   Calculate Bounding Box Ω_S (Clamped to Canvas)
+               │
+   Sample Ω_S: Candidate P' (activeStrokeFbo + baseFbo), Base P (baseFbo), Reference I_ref
+               │
+   Compute ΔLoss = Loss(P', I_ref) - Loss(P, I_ref)
+               │
+         ┌─────┴────────────────────────┐
+         │ ΔLoss ≤ 0                    │ ΔLoss > 0
+         ▼                              ▼
+   endActiveStroke()              clearActiveStroke()
+   - Commit stamps to baseFbo     - Discard activeStrokeFbo
+   - Clear activeStrokeFbo        - baseFbo left 100% pristine
+   - Reset debounce auto-save     - Haptic / Toast notification
+```
+
+#### 12.3.1 Bounding Region Delineation ($\Omega_S$)
+During stroke tracking, a dynamic bounding box is maintained from all evaluated Bezier points and touch coordinates $(x_i, y_i)$ with associated brush radii $R_i$:
+$$\Omega_S = [\min(x) - R_{\max}, \; \min(y) - R_{\max}, \; \max(x) + R_{\max}, \; \max(y) + R_{\max}]$$
+clamped to canvas dimensions $[0, W_{\text{canvas}}] \times [0, H_{\text{canvas}}]$, where $R_{\max}$ accounts for maximum brush radius plus antialiasing padding along the Bezier curve / stroke path.
+
+Restricting the loss evaluation domain to $\Omega_S$ prevents costly full-canvas pixel readbacks and guarantees instantaneous evaluation even on high-resolution canvases.
+
+#### 12.3.2 Non-Destructive Live Accumulation in `activeStrokeFbo`
+- In GLES 3.0, live strokes are accumulated in `activeStrokeFbo` without mutating `baseFbo`.
+- `baseFbo` and `scratchFbo` remain untouched during active drawing.
+- `CompositingShader` blends `activeStrokeFbo` over `baseFbo` and checkered background on the screen framebuffer (`GL_FRAMEBUFFER 0`), giving the user immediate, latency-free visual feedback of their stroke.
+
+#### 12.3.3 Stroke Finalization on `ACTION_UP`
+When the stylus lifts (`MotionEvent.ACTION_UP`):
+1. **Pre-Commit Sampling**:
+   - Before committing to `baseFbo`, sample the bounding box region $\Omega_S$ of `baseFbo` and reference image $I_{\text{ref}}$.
+   - Evaluate preview/committed candidate against reference image.
+2. **Evaluation & Execution**:
+   - If candidate improves or matches reference distance ($\Delta \text{Loss} \le 0$), `endActiveStroke()` commits the stroke to `baseFbo`.
+   - If candidate worsens similarity ($\Delta \text{Loss} > 0$), `clearActiveStroke()` discards the stroke with zero mutation to `baseFbo`.
+3. **Cancellation Handling**:
+   - On `ACTION_CANCEL`, `clearActiveStroke()` discards the active stroke immediately.
+
+---
+
+### 12.4 UI Integration & State Persistence
+
+#### 12.4.1 User Interface Controls
+- **More Options Bottom Sheet**: "Ratchet Mode (Keep Improvements Only)" toggle in `MoreOptionsBottomSheet` alongside Source Image Opacity and Reference Layer Visibility controls.
+- **Availability Guard**: Enabled when a valid reference image is loaded for the project. When no reference image exists, the toggle is disabled with an explanatory caption.
+
+#### 12.4.2 Project Metadata & Schema Persistence
+The Ratchet Mode toggle state is persisted per-project:
+- Persisted in `metadata.json` (`isRatchetEnabled: Boolean`) and `PaintingProject`.
+- In Kotlin domain entities:
+  - `PaintingProject(..., val isRatchetEnabled: Boolean = false)`
+  - Serialized and deserialized in `ProjectManager` and maintained across sessions, gallery switching, and app restarts.
+
+#### 12.4.3 Visual & Haptic Feedback
+- **Visual Feedback**: Optional subtle toast / indicator when a stroke is rejected by ratchet mode (e.g., "Stroke discarded — did not improve resemblance").
+- **Haptic Feedback**: Subtle vibration / rejection haptic pulse alerting the artist that the stroke was rolled back without interrupting drawing flow.
