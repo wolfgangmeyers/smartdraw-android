@@ -3,6 +3,7 @@ package com.smartdraw.gles
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.opengl.GLES30
+import android.opengl.Matrix
 import com.smartdraw.core.BezierCurve
 import com.smartdraw.core.Point2D
 import kotlin.math.hypot
@@ -259,9 +260,37 @@ class SmartDrawRenderer(
         }
     }
 
-    fun composite(targetFramebuffer: Int = compositeFbo.framebufferId, viewportW: Int = width, viewportH: Int = height) {
+    fun composite(
+        targetFramebuffer: Int = compositeFbo.framebufferId,
+        viewportW: Int = width,
+        viewportH: Int = height,
+        translationX: Float = 0f,
+        translationY: Float = 0f,
+        scale: Float = 1.0f
+    ) {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, targetFramebuffer)
         GLES30.glViewport(0, 0, viewportW, viewportH)
+
+        // Clear target framebuffer to neutral dark background (#1E1E1E) when drawing to screen (or if transformed)
+        GLES30.glClearColor(0.1176f, 0.1176f, 0.1176f, 1.0f)
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+
+        // Calculate MVP matrix transforming quad [0, 1] x [0, 1] into screen pixels and then NDC
+        // Canvas quad in screen pixel coords:
+        // x = translationX + S * width * qx
+        // y = translationY + S * height * qy
+        // Screen orthographic projection: left=0, right=viewportW, bottom=viewportH, top=0
+        val projMatrix = FloatArray(16)
+        Matrix.orthoM(projMatrix, 0, 0f, viewportW.toFloat(), viewportH.toFloat(), 0f, -1.0f, 1.0f)
+
+        val modelMatrix = FloatArray(16)
+        Matrix.setIdentityM(modelMatrix, 0)
+        Matrix.translateM(modelMatrix, 0, translationX, translationY, 0f)
+        Matrix.scaleM(modelMatrix, 0, scale * width.toFloat(), scale * height.toFloat(), 1.0f)
+
+        val mvpMatrix = FloatArray(16)
+        Matrix.multiplyMM(mvpMatrix, 0, projMatrix, 0, modelMatrix, 0)
+
         GLES30.glDisable(GLES30.GL_BLEND)
 
         compositingShader.renderComposite(
@@ -269,7 +298,8 @@ class SmartDrawRenderer(
             referenceTextureId = referenceLayer.textureId,
             referenceOpacity = referenceLayer.opacity,
             renderReference = referenceLayer.isVisible && referenceLayer.textureId != 0,
-            backgroundColor = solidBackgroundColor
+            backgroundColor = solidBackgroundColor,
+            mvpMatrix = mvpMatrix
         )
 
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)

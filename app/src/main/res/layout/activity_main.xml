@@ -56,6 +56,14 @@
                 android:textColor="#FFFFFF" />
 
             <Button
+                android:id="@+id/btnResetView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Reset View"
+                android:textColor="#FFFFFF" />
+
+            <Button
                 android:id="@+id/btnRunHarness"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

@@ -11,9 +11,17 @@ class TouchInputHandler(
     var baseOpacity: Float = 1.0f,
     var pressureGamma: Float = 1.0f,
     var minPressureFactor: Float = 0.1f,
+    var screenToCanvasTransformer: ((Float, Float) -> Pair<Float, Float>)? = null,
     private val onStrokeSegment: (BezierCurve, Float, Float) -> Unit, // curve, radius, opacity
     private val onStrokeEnd: (() -> Unit)? = null
 ) {
+    // Pointer ID of the active drawing stylus, or null if no stylus is currently down
+    var activeStylusPointerId: Int? = null
+        private set
+
+    val isStylusActive: Boolean
+        get() = activeStylusPointerId != null
+
     private val smoother = StrokeSmoother { curve ->
         // Evaluate dynamic radius and opacity from curve endpoints
         val avgPressure = ((curve.start.pressure + curve.end.pressure) * 0.5f).coerceIn(0.05f, 1.0f)
@@ -26,38 +34,118 @@ class TouchInputHandler(
     fun handleTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                val p = normalizePressure(event.pressure)
-                smoother.onPointDown(Point2D(event.x, event.y, p))
-                return true
+                val toolType = event.getToolType(0)
+                if (isStylusTool(toolType)) {
+                    val pointerId = event.getPointerId(0)
+                    activeStylusPointerId = pointerId
+                    val (cx, cy) = transformCoords(event.x, event.y)
+                    val p = normalizePressure(event.pressure)
+                    smoother.onPointDown(Point2D(cx, cy, p))
+                    return true
+                } else {
+                    // Finger touches or unknown pointer types never draw
+                    return false
+                }
+            }
+
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                val actionIndex = event.actionIndex
+                val toolType = event.getToolType(actionIndex)
+                // If a stylus touches down while no stylus was active, start drawing with it
+                if (isStylusTool(toolType) && activeStylusPointerId == null) {
+                    val pointerId = event.getPointerId(actionIndex)
+                    activeStylusPointerId = pointerId
+                    val (cx, cy) = transformCoords(event.getX(actionIndex), event.getY(actionIndex))
+                    val p = normalizePressure(event.getPressure(actionIndex))
+                    smoother.onPointDown(Point2D(cx, cy, p))
+                    return true
+                }
+                return activeStylusPointerId != null
             }
 
             MotionEvent.ACTION_MOVE -> {
+                val stylusId = activeStylusPointerId ?: return false
+                val pointerIndex = event.findPointerIndex(stylusId)
+                if (pointerIndex == -1) return false
+
+                // Process historical points for the active stylus pointer
                 val historySize = event.historySize
                 for (h in 0 until historySize) {
-                    val hx = event.getHistoricalX(h)
-                    val hy = event.getHistoricalY(h)
-                    val hp = normalizePressure(event.getHistoricalPressure(h))
-                    smoother.onPointMove(Point2D(hx, hy, hp))
+                    val hx = event.getHistoricalX(pointerIndex, h)
+                    val hy = event.getHistoricalY(pointerIndex, h)
+                    val hp = normalizePressure(event.getHistoricalPressure(pointerIndex, h))
+                    val (cx, cy) = transformCoords(hx, hy)
+                    smoother.onPointMove(Point2D(cx, cy, hp))
                 }
-                val p = normalizePressure(event.pressure)
-                smoother.onPointMove(Point2D(event.x, event.y, p))
+
+                val curX = event.getX(pointerIndex)
+                val curY = event.getY(pointerIndex)
+                val p = normalizePressure(event.getPressure(pointerIndex))
+                val (cx, cy) = transformCoords(curX, curY)
+                smoother.onPointMove(Point2D(cx, cy, p))
                 return true
+            }
+
+            MotionEvent.ACTION_POINTER_UP -> {
+                val actionIndex = event.actionIndex
+                val pointerId = event.getPointerId(actionIndex)
+                if (pointerId == activeStylusPointerId) {
+                    val (cx, cy) = transformCoords(event.getX(actionIndex), event.getY(actionIndex))
+                    val p = normalizePressure(event.getPressure(actionIndex))
+                    smoother.onPointUp(Point2D(cx, cy, p))
+                    activeStylusPointerId = null
+                    onStrokeEnd?.invoke()
+                    return true
+                }
+                return activeStylusPointerId != null
             }
 
             MotionEvent.ACTION_UP -> {
-                val p = normalizePressure(event.pressure)
-                smoother.onPointUp(Point2D(event.x, event.y, p))
-                onStrokeEnd?.invoke()
-                return true
+                val stylusId = activeStylusPointerId
+                if (stylusId != null) {
+                    val pointerIndex = event.findPointerIndex(stylusId)
+                    if (pointerIndex != -1) {
+                        val (cx, cy) = transformCoords(event.getX(pointerIndex), event.getY(pointerIndex))
+                        val p = normalizePressure(event.getPressure(pointerIndex))
+                        smoother.onPointUp(Point2D(cx, cy, p))
+                    } else {
+                        smoother.reset()
+                    }
+                    activeStylusPointerId = null
+                    onStrokeEnd?.invoke()
+                    return true
+                }
+                return false
             }
 
             MotionEvent.ACTION_CANCEL -> {
-                smoother.reset()
-                onStrokeEnd?.invoke()
-                return true
+                if (activeStylusPointerId != null) {
+                    smoother.reset()
+                    activeStylusPointerId = null
+                    onStrokeEnd?.invoke()
+                    return true
+                }
+                return false
             }
         }
         return false
+    }
+
+    fun cancelStroke() {
+        if (activeStylusPointerId != null) {
+            smoother.reset()
+            activeStylusPointerId = null
+            onStrokeEnd?.invoke()
+        }
+    }
+
+    private fun isStylusTool(toolType: Int): Boolean {
+        return toolType == MotionEvent.TOOL_TYPE_STYLUS || toolType == MotionEvent.TOOL_TYPE_ERASER
+    }
+
+    private fun transformCoords(screenX: Float, screenY: Float): Pair<Float, Float> {
+        val transformer = screenToCanvasTransformer ?: return Pair(screenX, screenY)
+        return transformer(screenX, screenY)
     }
 
     private fun normalizePressure(raw: Float): Float {

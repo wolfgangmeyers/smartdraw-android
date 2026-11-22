@@ -9,10 +9,11 @@ class CompositingShader {
     private val vertexShaderSource = """#version 300 es
         in vec2 a_position;
         in vec2 a_texCoord;
+        uniform mat4 u_mvpMatrix;
         out vec2 v_texCoord;
 
         void main() {
-            gl_Position = vec4(a_position, 0.0, 1.0);
+            gl_Position = u_mvpMatrix * vec4(a_position, 0.0, 1.0);
             v_texCoord = a_texCoord;
         }
     """.trimIndent()
@@ -61,18 +62,29 @@ class CompositingShader {
     private val uReferenceOpacityLoc: Int = GLES30.glGetUniformLocation(program, "u_referenceOpacity")
     private val uRenderReferenceLoc: Int = GLES30.glGetUniformLocation(program, "u_renderReference")
     private val uBackgroundColorLoc: Int = GLES30.glGetUniformLocation(program, "u_backgroundColor")
+    private val uMvpMatrixLoc: Int = GLES30.glGetUniformLocation(program, "u_mvpMatrix")
 
     private val quadBuffer: FloatBuffer
 
+    companion object {
+        private val IDENTITY_MATRIX = floatArrayOf(
+            1f, 0f, 0f, 0f,
+            0f, 1f, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            0f, 0f, 0f, 1f
+        )
+    }
+
     init {
-        // Fullscreen quad covering NDC [-1, 1] x [-1, 1] with UV [0, 1] x [0, 1]
+        // Quad with vertices in [0, 1] x [0, 1] for positioning via model matrix,
+        // and matching UV coordinates [0, 1] x [0, 1].
         val quadVertices = floatArrayOf(
-            -1.0f, -1.0f,  0.0f, 0.0f,
-             1.0f, -1.0f,  1.0f, 0.0f,
-            -1.0f,  1.0f,  0.0f, 1.0f,
-            -1.0f,  1.0f,  0.0f, 1.0f,
-             1.0f, -1.0f,  1.0f, 0.0f,
-             1.0f,  1.0f,  1.0f, 1.0f
+            0.0f, 0.0f,  0.0f, 0.0f,
+            1.0f, 0.0f,  1.0f, 0.0f,
+            0.0f, 1.0f,  0.0f, 1.0f,
+            0.0f, 1.0f,  0.0f, 1.0f,
+            1.0f, 0.0f,  1.0f, 0.0f,
+            1.0f, 1.0f,  1.0f, 1.0f
         )
         quadBuffer = ByteBuffer.allocateDirect(quadVertices.size * 4)
             .order(ByteOrder.nativeOrder())
@@ -86,7 +98,8 @@ class CompositingShader {
         referenceTextureId: Int,
         referenceOpacity: Float,
         renderReference: Boolean,
-        backgroundColor: FloatArray = floatArrayOf(1.0f, 1.0f, 1.0f, 1.0f)
+        backgroundColor: FloatArray = floatArrayOf(1.0f, 1.0f, 1.0f, 1.0f),
+        mvpMatrix: FloatArray? = null
     ) {
         GLES30.glUseProgram(program)
 
@@ -101,6 +114,7 @@ class CompositingShader {
         GLES30.glUniform1f(uReferenceOpacityLoc, referenceOpacity)
         GLES30.glUniform1i(uRenderReferenceLoc, if (renderReference) 1 else 0)
         GLES30.glUniform4fv(uBackgroundColorLoc, 1, backgroundColor, 0)
+        GLES30.glUniformMatrix4fv(uMvpMatrixLoc, 1, false, mvpMatrix ?: IDENTITY_MATRIX, 0)
 
         quadBuffer.position(0)
         GLES30.glEnableVertexAttribArray(aPositionLoc)

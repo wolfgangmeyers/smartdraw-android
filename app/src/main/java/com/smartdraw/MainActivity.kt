@@ -30,6 +30,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnSmudge: Button
     private lateinit var btnLoadImage: Button
     private lateinit var btnAutoColor: Button
+    private lateinit var btnResetView: Button
     private lateinit var btnRunHarness: Button
     private lateinit var statusText: TextView
     private lateinit var progressBar: ProgressBar
@@ -50,6 +51,7 @@ class MainActivity : AppCompatActivity() {
         btnSmudge = findViewById(R.id.btnSmudge)
         btnLoadImage = findViewById(R.id.btnLoadImage)
         btnAutoColor = findViewById(R.id.btnAutoColor)
+        btnResetView = findViewById(R.id.btnResetView)
         btnRunHarness = findViewById(R.id.btnRunHarness)
         statusText = findViewById(R.id.statusText)
         progressBar = findViewById(R.id.progressBar)
@@ -84,6 +86,11 @@ class MainActivity : AppCompatActivity() {
             drawView.useReferenceColors = !drawView.useReferenceColors
             updateAutoColorButton()
             statusText.text = if (drawView.useReferenceColors) "Auto color sampling enabled" else "Manual color mode"
+        }
+
+        btnResetView.setOnClickListener {
+            drawView.resetView()
+            statusText.text = "View reset to 1:1 centered"
         }
 
         btnRunHarness.setOnClickListener {
@@ -177,6 +184,7 @@ class MainActivity : AppCompatActivity() {
         btnSmudge.isEnabled = enabled
         btnLoadImage.isEnabled = enabled
         btnAutoColor.isEnabled = enabled
+        btnResetView.isEnabled = enabled
         btnRunHarness.isEnabled = enabled
     }
 
