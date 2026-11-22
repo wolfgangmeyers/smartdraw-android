@@ -2,6 +2,7 @@ package com.smartdraw
 
 import android.widget.ImageButton
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -60,12 +61,22 @@ class MainActivityUiTest {
 
     @Test
     fun testMoreOptionsModalListeners() {
-        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        val controller = Robolectric.buildActivity(MainActivity::class.java).create()
         val activity = controller.get()
+        activity.ioDispatcher = kotlinx.coroutines.Dispatchers.Main
+        controller.start().resume().visible()
+        org.robolectric.shadows.ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
         val drawView: SmartDrawView = activity.findViewById(R.id.smartDrawView)
 
         // Test opacity callback
         activity.onOpacityChanged(45)
+        // Test ratchet mode toggle callback
+        activity.onRatchetModeToggled(true)
+        assertTrue(drawView.isRatchetEnabled)
+        assertEquals(true, activity.currentProject?.isRatchetEnabled)
+        activity.onRatchetModeToggled(false)
+        assertFalse(drawView.isRatchetEnabled)
+        assertEquals(false, activity.currentProject?.isRatchetEnabled)
         // Test clear painting
         activity.onClearPaintingClicked()
         // Test reset view
@@ -92,6 +103,7 @@ class MainActivityUiTest {
         val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
         val activity = controller.get()
         activity.ioDispatcher = kotlinx.coroutines.Dispatchers.Main
+        org.robolectric.shadows.ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
 
         assertNotNull(activity.currentProject)
         assertNotNull(activity.projectManager.getActiveProject())

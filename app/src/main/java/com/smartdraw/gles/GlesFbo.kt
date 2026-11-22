@@ -65,6 +65,47 @@ class GlesFbo(val width: Int, val height: Int) {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
     }
 
+    /**
+     * Reads a sub-rectangle from this FBO into an IntArray of ARGB pixels with top-left origin.
+     * x and y are in top-left canvas coordinates [0, width), [0, height).
+     */
+    fun readSubRect(x: Int, y: Int, w: Int, h: Int): IntArray {
+        val outPixels = IntArray(w * h)
+        if (w <= 0 || h <= 0) return outPixels
+
+        val glX = x.coerceIn(0, width - 1)
+        val glY = (height - (y + h)).coerceIn(0, height - 1)
+        val readW = w.coerceAtMost(width - glX)
+        val readH = h.coerceAtMost(height - glY)
+
+        bind()
+        val buffer = ByteBuffer.allocateDirect(readW * readH * 4).order(ByteOrder.nativeOrder())
+        GLES30.glReadPixels(glX, glY, readW, readH, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, buffer)
+        unbind()
+
+        buffer.rewind()
+        val intBuf = buffer.asIntBuffer()
+        val temp = IntArray(readW * readH)
+        intBuf.get(temp)
+
+        // glY is at the bottom of the sub-rect in OpenGL window coordinates.
+        // In GLES, row 0 of `temp` is glY (bottom), row (readH - 1) is top.
+        // Canvas top-left coordinates need row 0 to be top.
+        for (row in 0 until readH) {
+            val srcRow = (readH - 1 - row) * readW
+            val dstRow = row * w
+            for (col in 0 until readW) {
+                val rgba = temp[srcRow + col]
+                val r = rgba and 0xFF
+                val g = (rgba shr 8) and 0xFF
+                val b = (rgba shr 16) and 0xFF
+                val a = (rgba shr 24) and 0xFF
+                outPixels[dstRow + col] = (a shl 24) or (r shl 16) or (g shl 8) or b
+            }
+        }
+        return outPixels
+    }
+
     fun readBitmap(): Bitmap {
         bind()
         val buffer = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())

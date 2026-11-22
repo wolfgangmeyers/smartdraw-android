@@ -86,6 +86,7 @@ class ProjectManagerTest {
         project.referenceOpacity = 0.65f
         project.isReferenceVisible = true
         project.useReferenceColors = false
+        project.isRatchetEnabled = true
 
         projectManager.saveProject(
             project = project,
@@ -101,6 +102,7 @@ class ProjectManagerTest {
         assertEquals("SMUDGE", loaded.project.activeTool)
         assertEquals(0.65f, loaded.project.referenceOpacity, 0.001f)
         assertFalse(loaded.project.useReferenceColors)
+        assertTrue(loaded.project.isRatchetEnabled)
 
         assertNotNull(loaded.baseBitmap)
         assertEquals(512, loaded.baseBitmap?.width)

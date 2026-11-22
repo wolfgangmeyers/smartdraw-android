@@ -8,6 +8,7 @@ import android.widget.SeekBar
 import android.widget.TextView
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.materialswitch.MaterialSwitch
 
 class MoreOptionsBottomSheet : BottomSheetDialogFragment() {
 
@@ -17,6 +18,7 @@ class MoreOptionsBottomSheet : BottomSheetDialogFragment() {
         fun onChangeSourceImageClicked()
         fun onOpacityChanged(opacityPercent: Int)
         fun onToggleSourceVisibilityClicked(currentlyVisible: Boolean)
+        fun onRatchetModeToggled(enabled: Boolean)
         fun onClearPaintingClicked()
         fun onResetCanvasViewClicked()
         fun onRunTestHarnessClicked()
@@ -26,11 +28,13 @@ class MoreOptionsBottomSheet : BottomSheetDialogFragment() {
     var currentOpacityPercent: Int = 30
     var isSourceVisible: Boolean = true
     var isCustomImageLoaded: Boolean = false
+    var isRatchetEnabled: Boolean = false
 
     private lateinit var textOpacityValue: TextView
     private lateinit var sliderOpacity: SeekBar
     private lateinit var btnToggleSourceVisibility: MaterialButton
     private lateinit var btnChangeSourceImage: MaterialButton
+    private lateinit var switchRatchetMode: MaterialSwitch
 
     companion object {
         const val TAG = "MoreOptionsBottomSheet"
@@ -38,12 +42,14 @@ class MoreOptionsBottomSheet : BottomSheetDialogFragment() {
         fun newInstance(
             opacityPercent: Int,
             isSourceVisible: Boolean,
-            isCustomImageLoaded: Boolean = false
+            isCustomImageLoaded: Boolean = false,
+            isRatchetEnabled: Boolean = false
         ): MoreOptionsBottomSheet {
             return MoreOptionsBottomSheet().apply {
                 currentOpacityPercent = opacityPercent
                 this.isSourceVisible = isSourceVisible
                 this.isCustomImageLoaded = isCustomImageLoaded
+                this.isRatchetEnabled = isRatchetEnabled
             }
         }
     }
@@ -65,6 +71,7 @@ class MoreOptionsBottomSheet : BottomSheetDialogFragment() {
         textOpacityValue = view.findViewById(R.id.textOpacityValue)
         sliderOpacity = view.findViewById(R.id.sliderOpacity)
         btnToggleSourceVisibility = view.findViewById(R.id.btnToggleSourceVisibility)
+        switchRatchetMode = view.findViewById(R.id.switchRatchetMode)
         val btnClearPainting: MaterialButton = view.findViewById(R.id.btnClearPainting)
         val btnResetCanvasView: MaterialButton = view.findViewById(R.id.btnResetCanvasView)
         val btnRunHarnessModal: MaterialButton = view.findViewById(R.id.btnRunHarnessModal)
@@ -109,6 +116,12 @@ class MoreOptionsBottomSheet : BottomSheetDialogFragment() {
             isSourceVisible = !isSourceVisible
             updateVisibilityButtonUI()
             listener?.onToggleSourceVisibilityClicked(isSourceVisible)
+        }
+
+        switchRatchetMode.isChecked = isRatchetEnabled
+        switchRatchetMode.setOnCheckedChangeListener { _, isChecked ->
+            isRatchetEnabled = isChecked
+            listener?.onRatchetModeToggled(isChecked)
         }
 
         btnClearPainting.setOnClickListener {

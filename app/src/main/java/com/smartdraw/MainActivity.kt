@@ -91,6 +91,7 @@ class MainActivity : AppCompatActivity(),
                     p.referenceOpacity = currentOpacityPercent / 100f
                     p.isReferenceVisible = isSourceVisible
                     p.useReferenceColors = drawView.useReferenceColors
+                    p.isRatchetEnabled = drawView.isRatchetEnabled
                     p.activeTool = if (drawView.toolMode == SmartDrawView.ToolMode.PENCIL) "PENCIL" else "SMUDGE"
                     p.brushSize = drawView.getBrushSize()
                     p.brushOpacity = drawView.brushOpacity
@@ -207,6 +208,7 @@ class MainActivity : AppCompatActivity(),
 
                     // Tool & Brush Settings
                     drawView.useReferenceColors = project.useReferenceColors
+                    drawView.setRatchetEnabled(project.isRatchetEnabled)
                     drawView.toolMode = if (project.activeTool == "SMUDGE") SmartDrawView.ToolMode.SMUDGE else SmartDrawView.ToolMode.PENCIL
                     drawView.setBrushSize(project.brushSize)
                     drawView.brushOpacity = project.brushOpacity
@@ -318,7 +320,8 @@ class MainActivity : AppCompatActivity(),
         val sheet = MoreOptionsBottomSheet.newInstance(
             opacityPercent = currentOpacityPercent,
             isSourceVisible = isSourceVisible,
-            isCustomImageLoaded = isCustomImageLoaded
+            isCustomImageLoaded = isCustomImageLoaded,
+            isRatchetEnabled = drawView.isRatchetEnabled
         )
         sheet.listener = this
         sheet.show(supportFragmentManager, MoreOptionsBottomSheet.TAG)
@@ -374,6 +377,13 @@ class MainActivity : AppCompatActivity(),
         currentProject?.isReferenceVisible = isSourceVisible
         autoSaveManager.markDirty()
         statusText.text = if (isSourceVisible) "Source image visible" else "Source image hidden"
+    }
+
+    override fun onRatchetModeToggled(enabled: Boolean) {
+        drawView.setRatchetEnabled(enabled)
+        currentProject?.isRatchetEnabled = enabled
+        autoSaveManager.markDirty()
+        statusText.text = if (enabled) "Ratchet mode enabled" else "Ratchet mode disabled"
     }
 
     override fun onClearPaintingClicked() {

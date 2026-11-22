@@ -19,6 +19,9 @@ class ReferenceLayer {
     var opacity: Float = 0.3f
     var isVisible: Boolean = true
 
+    val hasImage: Boolean
+        get() = bitmap != null && !(bitmap?.isRecycled ?: true)
+
     fun setBitmap(source: Bitmap, updateGlTexture: Boolean = true) {
         bitmap = source
         if (updateGlTexture) {

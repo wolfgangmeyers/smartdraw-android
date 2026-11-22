@@ -27,6 +27,9 @@ class SmartDrawView @JvmOverloads constructor(
     var toolMode: ToolMode = ToolMode.PENCIL
     var brushColor: Int = Color.BLACK
     var useReferenceColors: Boolean = false
+    var isRatchetEnabled: Boolean = false
+        get() = field
+        private set
     var brushRadius: Float = 20.0f
         get() = if (::touchHandler.isInitialized) touchHandler.baseRadius else field
         set(value) {
@@ -189,15 +192,18 @@ class SmartDrawView @JvmOverloads constructor(
             onStrokeEnd = {
                 queueEvent {
                     val r = rendererInstance ?: return@queueEvent
+                    var committed = true
                     if (toolMode == ToolMode.PENCIL) {
-                        r.endActiveStroke(
+                        committed = r.endActiveStroke(
                             useReferenceColors = useReferenceColors,
                             defaultColor = brushColor,
                             spacingRatio = 0.2f
                         )
                     }
                     requestRender()
-                    post { onStrokeCompleted?.invoke() }
+                    if (committed) {
+                        post { onStrokeCompleted?.invoke() }
+                    }
                 }
             },
             onStrokeCancel = {
@@ -215,6 +221,7 @@ class SmartDrawView @JvmOverloads constructor(
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         val renderer = SmartDrawRenderer(canvasWidth, canvasHeight)
+        renderer.isRatchetEnabled = isRatchetEnabled
         rendererInstance = renderer
 
         val baseBmp = pendingBaseBitmap
@@ -335,6 +342,15 @@ class SmartDrawView @JvmOverloads constructor(
     private fun centerCanvas(w: Int, h: Int) {
         viewportTranslationX = (w - canvasWidth * viewportScale) * 0.5f
         viewportTranslationY = (h - canvasHeight * viewportScale) * 0.5f
+    }
+
+    fun setRatchetEnabled(enabled: Boolean) {
+        this.isRatchetEnabled = enabled
+        if (rendererInstance != null) {
+            queueEvent {
+                rendererInstance?.isRatchetEnabled = enabled
+            }
+        }
     }
 
     fun setBrushSize(radius: Float) {

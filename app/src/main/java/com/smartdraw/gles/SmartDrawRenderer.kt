@@ -6,6 +6,7 @@ import android.opengl.GLES30
 import android.opengl.Matrix
 import com.smartdraw.core.BezierCurve
 import com.smartdraw.core.Point2D
+import com.smartdraw.core.RatchetEvaluator
 import kotlin.math.hypot
 import kotlin.math.max
 
@@ -23,6 +24,7 @@ class SmartDrawRenderer(
         private set
 
     var hasActiveStroke: Boolean = false
+    var isRatchetEnabled: Boolean = false
 
     val referenceLayer = ReferenceLayer()
 
@@ -168,10 +170,10 @@ class SmartDrawRenderer(
         useReferenceColors: Boolean,
         defaultColor: Int,
         spacingRatio: Float = 0.2f
-    ): Int {
+    ): Boolean {
         if (activeStrokeSegments.isEmpty() && activeStrokePoints.isEmpty()) {
             clearActiveStroke()
-            return defaultColor
+            return true
         }
 
         // 1. Calculate final color by averaging reference pixels covered by the stroke
@@ -187,7 +189,62 @@ class SmartDrawRenderer(
             defaultColor
         }
 
-        // 2. Commit all accumulated segments of this stroke to baseFbo using the final average color
+        // 2. Ratchet Mode evaluation if enabled and a reference image is loaded
+        val refBmp = referenceLayer.bitmap
+        if (isRatchetEnabled && referenceLayer.hasImage && refBmp != null && !refBmp.isRecycled) {
+            var maxSegR = 0f
+            for (seg in activeStrokeSegments) {
+                if (seg.radius > maxSegR) maxSegR = seg.radius
+            }
+
+            val box = RatchetEvaluator.computeBoundingBox(
+                points = activeStrokePoints,
+                radii = activeStrokeRadii,
+                maxSegmentRadius = maxSegR,
+                canvasWidth = width,
+                canvasHeight = height
+            )
+
+            if (box.width > 0 && box.height > 0) {
+                // Read baseFbo sub-rect
+                val basePixels = baseFbo.readSubRect(box.x0, box.y0, box.width, box.height)
+
+                // Rasterize stroke into candidate copy of sub-rect
+                val candidatePixels = basePixels.copyOf()
+                val segmentTriples = activeStrokeSegments.map { Triple(it.curve, it.radius, it.opacity) }
+                RatchetEvaluator.simulateStrokeOnSubRect(
+                    subRectPixels = candidatePixels,
+                    box = box,
+                    segments = segmentTriples,
+                    finalColor = finalColor,
+                    spacingRatio = spacingRatio
+                )
+
+                val refW = refBmp.width
+                val refH = refBmp.height
+                val refPixels = IntArray(refW * refH)
+                refBmp.getPixels(refPixels, 0, refW, 0, 0, refW, refH)
+
+                val keepStroke = RatchetEvaluator.evaluateSimilarity(
+                    basePixels = basePixels,
+                    candidatePixels = candidatePixels,
+                    box = box,
+                    refPixels = refPixels,
+                    refWidth = refW,
+                    refHeight = refH,
+                    canvasWidth = width,
+                    canvasHeight = height
+                )
+
+                if (!keepStroke) {
+                    // Stroke worsened similarity! Discard and rollback.
+                    clearActiveStroke()
+                    return false
+                }
+            }
+        }
+
+        // 3. Commit all accumulated segments of this stroke to baseFbo using the final average color
         baseFbo.bind()
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFuncSeparate(
@@ -226,10 +283,10 @@ class SmartDrawRenderer(
         GLES30.glDisable(GLES30.GL_BLEND)
         baseFbo.unbind()
 
-        // 3. Clear active stroke buffer now that baseFbo has received the permanent stroke
+        // 4. Clear active stroke buffer now that baseFbo has received the permanent stroke
         clearActiveStroke()
 
-        return finalColor
+        return true
     }
 
     fun clearActiveStroke() {
