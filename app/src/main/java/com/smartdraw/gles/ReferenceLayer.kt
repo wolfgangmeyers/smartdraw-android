@@ -19,11 +19,9 @@ class ReferenceLayer {
     var opacity: Float = 0.3f
     var isVisible: Boolean = true
 
-    fun setBitmap(source: Bitmap, updateGlTexture: Boolean = true) {
+    fun setBitmap(source: Bitmap) {
         bitmap = source
-        if (updateGlTexture) {
-            updateTexture()
-        }
+        updateTexture()
     }
 
     fun updateTexture() {
@@ -58,8 +56,12 @@ class ReferenceLayer {
         val w = b.width
         val h = b.height
         if (w <= 0 || h <= 0) return defaultColor
-        val px = x.toInt().coerceIn(0, w - 1)
-        val py = y.toInt().coerceIn(0, h - 1)
+
+        // Normalize canvas coordinates (1024x1024) to image dimensions
+        val u = (x / 1024f).coerceIn(0.0f, 1.0f)
+        val v = (y / 1024f).coerceIn(0.0f, 1.0f)
+        val px = (u * (w - 1)).toInt()
+        val py = (v * (h - 1)).toInt()
         return b.getPixel(px, py)
     }
 
@@ -91,19 +93,24 @@ class ReferenceLayer {
         for (i in points.indices) {
             val pt = points[i]
             val r = if (i < radii.size) radii[i] else (radii.lastOrNull() ?: 20f)
-            val minX = max(0, (pt.x - r).toInt())
-            val maxX = min(w - 1, (pt.x + r).toInt())
-            val minY = max(0, (pt.y - r).toInt())
-            val maxY = min(h - 1, (pt.y + r).toInt())
 
-            val step = max(1, (r / 6f).toInt())
+            val imgCenterX = (pt.x / 1024f) * w
+            val imgCenterY = (pt.y / 1024f) * h
+            val imgRadius = (r / 1024f) * max(w, h)
+
+            val minX = max(0, (imgCenterX - imgRadius).toInt())
+            val maxX = min(w - 1, (imgCenterX + imgRadius).toInt())
+            val minY = max(0, (imgCenterY - imgRadius).toInt())
+            val maxY = min(h - 1, (imgCenterY + imgRadius).toInt())
+
+            val step = max(1, (imgRadius / 6f).toInt())
             var py = minY
             while (py <= maxY) {
                 var px = minX
                 while (px <= maxX) {
-                    val dx = px - pt.x
-                    val dy = py - pt.y
-                    if (dx * dx + dy * dy <= r * r) {
+                    val dx = px - imgCenterX
+                    val dy = py - imgCenterY
+                    if (dx * dx + dy * dy <= imgRadius * imgRadius) {
                         val key = (px.toLong() shl 32) or (py.toLong() and 0xFFFFFFFFL)
                         if (visited.add(key)) {
                             val pixel = b.getPixel(px, py)

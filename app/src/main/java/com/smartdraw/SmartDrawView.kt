@@ -53,13 +53,11 @@ class SmartDrawView @JvmOverloads constructor(
         val vpTop: Int
 
         if (viewAspect > canvasAspect) {
-            // View is wider than canvas -> fit height
             vpHeight = vh
             vpWidth = (vh * canvasAspect).toInt()
             vpLeft = (vw - vpWidth) / 2
             vpTop = 0
         } else {
-            // View is taller than or equal to canvas -> fit width
             vpWidth = vw
             vpHeight = (vw / canvasAspect).toInt()
             vpLeft = 0
@@ -161,18 +159,12 @@ class SmartDrawView @JvmOverloads constructor(
         val r = rendererInstance ?: return
         val vp = getCanvasViewport()
 
-        // Bind framebuffer 0 (the screen)
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
-
-        // Clear background to dark gray
         GLES30.glViewport(0, 0, viewWidth, viewHeight)
         GLES30.glClearColor(0.12f, 0.12f, 0.12f, 1.0f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
 
-        // Set viewport to the canvas viewport
         GLES30.glViewport(vp.left, viewHeight - vp.bottom, vp.width, vp.height)
-
-        // Render the composited canvas to the screen!
         r.renderToScreen()
     }
 
@@ -193,6 +185,13 @@ class SmartDrawView @JvmOverloads constructor(
     fun setReferenceVisible(visible: Boolean) {
         queueEvent {
             rendererInstance?.referenceLayer?.isVisible = visible
+            requestRender()
+        }
+    }
+
+    fun clearCanvas() {
+        queueEvent {
+            rendererInstance?.clear(1.0f, 1.0f, 1.0f, 1.0f)
             requestRender()
         }
     }
