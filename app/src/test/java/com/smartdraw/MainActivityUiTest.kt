@@ -91,6 +91,7 @@ class MainActivityUiTest {
     fun testSessionRestorationLoadsActiveProject() {
         val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
         val activity = controller.get()
+        activity.ioDispatcher = kotlinx.coroutines.Dispatchers.Main
 
         assertNotNull(activity.currentProject)
         assertNotNull(activity.projectManager.getActiveProject())
@@ -99,6 +100,7 @@ class MainActivityUiTest {
         // Create new project and switch
         val newProj = activity.projectManager.createNewProject(1200, 1600, "Portrait Test")
         activity.loadProjectIntoEditor(newProj.id)
+        org.robolectric.shadows.ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
 
         assertEquals("Portrait Test", activity.currentProject?.title)
         assertEquals(1200, activity.drawView.canvasWidth)

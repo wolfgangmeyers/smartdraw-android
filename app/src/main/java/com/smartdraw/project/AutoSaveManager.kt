@@ -56,6 +56,13 @@ class AutoSaveManager(
         handler.removeCallbacks(autoSaveRunnable)
     }
 
+    fun cancelAutoSave() {
+        cancelDebounceTimer()
+        activeSaveJob?.cancel()
+        activeSaveJob = null
+        isDirty = false
+    }
+
     fun triggerSaveAsync(onComplete: (() -> Unit)? = null) {
         val project = provider.getCurrentProject() ?: return
         if (!isDirty) {

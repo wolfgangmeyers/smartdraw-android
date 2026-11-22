@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.opengl.GLSurfaceView
+import android.os.Looper
 import android.util.AttributeSet
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -67,6 +68,11 @@ class SmartDrawView @JvmOverloads constructor(
     private var rendererInstance: SmartDrawRenderer? = null
     private var surfaceWidth = 1024
     private var surfaceHeight = 1024
+
+    private var pendingBaseBitmap: Bitmap? = null
+    private var pendingReferenceBitmap: Bitmap? = null
+    private var pendingReferenceOpacity: Float? = null
+    private var pendingReferenceVisible: Boolean? = null
 
     private var activeStrokeStartColor: Int = Color.BLACK
 
@@ -208,7 +214,29 @@ class SmartDrawView @JvmOverloads constructor(
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
-        rendererInstance = SmartDrawRenderer(canvasWidth, canvasHeight)
+        val renderer = SmartDrawRenderer(canvasWidth, canvasHeight)
+        rendererInstance = renderer
+
+        val baseBmp = pendingBaseBitmap
+        if (baseBmp != null && !baseBmp.isRecycled) {
+            renderer.loadBaseBitmap(baseBmp)
+            baseBmp.recycle()
+        }
+        pendingBaseBitmap = null
+
+        val refBmp = pendingReferenceBitmap
+        if (refBmp != null && !refBmp.isRecycled) {
+            renderer.referenceLayer.setBitmap(refBmp)
+        }
+        pendingReferenceBitmap = null
+
+        pendingReferenceOpacity?.let { renderer.referenceLayer.opacity = it }
+        pendingReferenceOpacity = null
+
+        pendingReferenceVisible?.let { renderer.referenceLayer.isVisible = it }
+        pendingReferenceVisible = null
+
+        requestRender()
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -329,30 +357,39 @@ class SmartDrawView @JvmOverloads constructor(
     }
 
     fun setReferenceImage(bitmap: Bitmap) {
-        queueEvent {
-            rendererInstance?.referenceLayer?.setBitmap(bitmap)
-            requestRender()
+        if (rendererInstance != null) {
+            queueEvent {
+                rendererInstance?.referenceLayer?.setBitmap(bitmap)
+                requestRender()
+            }
+        } else {
+            pendingReferenceBitmap = bitmap
         }
     }
 
     fun loadPaintingBitmap(bitmap: Bitmap) {
-        queueEvent {
-            rendererInstance?.loadBaseBitmap(bitmap)
-            requestRender()
-        }
+        loadBaseBitmap(bitmap)
     }
 
     fun setReferenceOpacity(opacity: Float) {
-        queueEvent {
-            rendererInstance?.referenceLayer?.opacity = opacity
-            requestRender()
+        if (rendererInstance != null) {
+            queueEvent {
+                rendererInstance?.referenceLayer?.opacity = opacity
+                requestRender()
+            }
+        } else {
+            pendingReferenceOpacity = opacity
         }
     }
 
     fun setReferenceVisible(visible: Boolean) {
-        queueEvent {
-            rendererInstance?.referenceLayer?.isVisible = visible
-            requestRender()
+        if (rendererInstance != null) {
+            queueEvent {
+                rendererInstance?.referenceLayer?.isVisible = visible
+                requestRender()
+            }
+        } else {
+            pendingReferenceVisible = visible
         }
     }
 
@@ -363,11 +400,17 @@ class SmartDrawView @JvmOverloads constructor(
     fun setCanvasDimensions(width: Int, height: Int) {
         canvasWidth = width
         canvasHeight = height
-        queueEvent {
-            rendererInstance?.resizeCanvas(width, height)
-            requestRender()
+        if (rendererInstance != null) {
+            queueEvent {
+                rendererInstance?.resizeCanvas(width, height)
+                requestRender()
+            }
         }
-        resetView()
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            resetView()
+        } else {
+            post { resetView() }
+        }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -532,9 +575,14 @@ class SmartDrawView @JvmOverloads constructor(
     }
 
     fun loadBaseBitmap(bitmap: Bitmap) {
-        queueEvent {
-            rendererInstance?.loadBaseBitmap(bitmap)
-            requestRender()
+        if (rendererInstance != null) {
+            queueEvent {
+                rendererInstance?.loadBaseBitmap(bitmap)
+                bitmap.recycle()
+                requestRender()
+            }
+        } else {
+            pendingBaseBitmap = bitmap
         }
     }
 

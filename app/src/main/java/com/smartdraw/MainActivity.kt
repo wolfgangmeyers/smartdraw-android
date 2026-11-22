@@ -38,6 +38,8 @@ class MainActivity : AppCompatActivity(),
     ToolSettingsBottomSheet.Listener,
     GalleryDialogFragment.Listener {
 
+    var ioDispatcher = Dispatchers.IO
+
     lateinit var drawView: SmartDrawView
     private lateinit var btnActiveTool: ImageButton
     private lateinit var btnAutoColor: ImageButton
@@ -171,55 +173,56 @@ class MainActivity : AppCompatActivity(),
     }
 
     fun loadProjectIntoEditor(projectId: String) {
-        try {
-            val loaded = projectManager.loadProject(projectId)
-            val project = loaded.project
-            currentProject = project
-            projectManager.setActiveProject(project.id)
+        lifecycleScope.launch(ioDispatcher) {
+            try {
+                val loaded = projectManager.loadProject(projectId)
+                val project = loaded.project
+                withContext(Dispatchers.Main) {
+                    currentProject = project
+                    projectManager.setActiveProject(project.id)
 
-            // Canvas Dimensions & Base Layer
-            drawView.setCanvasDimensions(project.canvasWidth, project.canvasHeight)
-            if (loaded.baseBitmap != null) {
-                drawView.loadBaseBitmap(loaded.baseBitmap)
-                loaded.baseBitmap.recycle()
-            } else {
-                drawView.clearCanvas()
+                    // Canvas Dimensions & Base Layer
+                    drawView.setCanvasDimensions(project.canvasWidth, project.canvasHeight)
+                    if (loaded.baseBitmap != null) {
+                        drawView.loadBaseBitmap(loaded.baseBitmap)
+                    } else {
+                        drawView.clearCanvas()
+                    }
+
+                    // Reference Image
+                    val oldRefBitmap = currentReferenceBitmap
+                    val newRefBitmap = loaded.referenceBitmap ?: ReferenceImageGenerator.createRadialGradient(project.canvasWidth, project.canvasHeight)
+                    if (oldRefBitmap != null && oldRefBitmap != newRefBitmap && !oldRefBitmap.isRecycled) {
+                        oldRefBitmap.recycle()
+                    }
+                    currentReferenceBitmap = newRefBitmap
+                    drawView.setReferenceImage(newRefBitmap)
+                    isCustomImageLoaded = (loaded.referenceBitmap != null)
+
+                    // Reference Layer Visibility & Opacity
+                    currentOpacityPercent = (project.referenceOpacity * 100f).roundToInt().coerceIn(0, 100)
+                    isSourceVisible = project.isReferenceVisible
+                    drawView.setReferenceOpacity(project.referenceOpacity)
+                    drawView.setReferenceVisible(isSourceVisible)
+
+                    // Tool & Brush Settings
+                    drawView.useReferenceColors = project.useReferenceColors
+                    drawView.toolMode = if (project.activeTool == "SMUDGE") SmartDrawView.ToolMode.SMUDGE else SmartDrawView.ToolMode.PENCIL
+                    drawView.setBrushSize(project.brushSize)
+                    drawView.brushOpacity = project.brushOpacity
+
+                    updateActiveToolUI()
+                    updateAutoColorUI()
+                    drawView.resetView()
+
+                    statusText.text = "${project.title} loaded"
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load project $projectId", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Failed to load project: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             }
-
-            // Reference Image
-            currentReferenceBitmap?.recycle()
-            currentReferenceBitmap = loaded.referenceBitmap
-            if (loaded.referenceBitmap != null) {
-                drawView.setReferenceImage(loaded.referenceBitmap)
-                isCustomImageLoaded = true
-            } else {
-                // If project has no reference image, default radial gradient
-                val refBitmap = ReferenceImageGenerator.createRadialGradient(project.canvasWidth, project.canvasHeight)
-                drawView.setReferenceImage(refBitmap)
-                currentReferenceBitmap = refBitmap
-                isCustomImageLoaded = false
-            }
-
-            // Reference Layer Visibility & Opacity
-            currentOpacityPercent = (project.referenceOpacity * 100f).roundToInt().coerceIn(0, 100)
-            isSourceVisible = project.isReferenceVisible
-            drawView.setReferenceOpacity(project.referenceOpacity)
-            drawView.setReferenceVisible(isSourceVisible)
-
-            // Tool & Brush Settings
-            drawView.useReferenceColors = project.useReferenceColors
-            drawView.toolMode = if (project.activeTool == "SMUDGE") SmartDrawView.ToolMode.SMUDGE else SmartDrawView.ToolMode.PENCIL
-            drawView.setBrushSize(project.brushSize)
-            drawView.brushOpacity = project.brushOpacity
-
-            updateActiveToolUI()
-            updateAutoColorUI()
-            drawView.resetView()
-
-            statusText.text = "${project.title} loaded"
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to load project $projectId", e)
-            Toast.makeText(this, "Failed to load project: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -247,8 +250,12 @@ class MainActivity : AppCompatActivity(),
             .setView(input)
             .setPositiveButton("Create") { _, _ ->
                 val title = input.text.toString().trim().takeIf { it.isNotEmpty() } ?: "Untitled Painting"
-                val newProject = projectManager.createNewProject(1024, 1024, title)
-                loadProjectIntoEditor(newProject.id)
+                lifecycleScope.launch(ioDispatcher) {
+                    val newProject = projectManager.createNewProject(1024, 1024, title)
+                    withContext(Dispatchers.Main) {
+                        loadProjectIntoEditor(newProject.id)
+                    }
+                }
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -269,13 +276,20 @@ class MainActivity : AppCompatActivity(),
 
     override fun onProjectDeleted(deletedProject: PaintingProject) {
         if (currentProject?.id == deletedProject.id) {
+            autoSaveManager.cancelAutoSave()
             // Deleted project was active! Find next active or create new
-            val nextActive = projectManager.getActiveProject()
-            if (nextActive != null) {
-                loadProjectIntoEditor(nextActive.id)
-            } else {
-                val newProj = projectManager.createNewProject(1024, 1024, "Untitled Painting")
-                loadProjectIntoEditor(newProj.id)
+            lifecycleScope.launch(ioDispatcher) {
+                val nextActive = projectManager.getActiveProject()
+                if (nextActive != null) {
+                    withContext(Dispatchers.Main) {
+                        loadProjectIntoEditor(nextActive.id)
+                    }
+                } else {
+                    val newProj = projectManager.createNewProject(1024, 1024, "Untitled Painting")
+                    withContext(Dispatchers.Main) {
+                        loadProjectIntoEditor(newProj.id)
+                    }
+                }
             }
         }
     }

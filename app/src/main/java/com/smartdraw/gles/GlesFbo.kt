@@ -98,8 +98,23 @@ class GlesFbo(val width: Int, val height: Int) {
     }
 
     fun loadBitmap(source: Bitmap) {
-        val matrix = Matrix().apply { postScale(1.0f, -1.0f) }
-        val flipped = Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+        if (source.isRecycled) return
+
+        val flipped = try {
+            val matrix = Matrix().apply { postScale(1.0f, -1.0f) }
+            Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+        } catch (e: Exception) {
+            // Fallback safe software canvas draw if color space or hardware bitmap issue
+            val safe = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(safe)
+            val matrix = Matrix().apply {
+                postScale(1.0f, -1.0f)
+                postTranslate(0f, source.height.toFloat())
+            }
+            canvas.drawBitmap(source, matrix, null)
+            safe
+        }
+
         val scaled = if (flipped.width != width || flipped.height != height) {
             Bitmap.createScaledBitmap(flipped, width, height, true)
         } else {

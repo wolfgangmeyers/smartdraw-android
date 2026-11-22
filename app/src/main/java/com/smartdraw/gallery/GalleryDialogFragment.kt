@@ -9,12 +9,16 @@ import android.widget.ImageButton
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.DialogFragment
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.button.MaterialButton
 import com.smartdraw.R
 import com.smartdraw.project.PaintingProject
 import com.smartdraw.project.ProjectManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class GalleryDialogFragment : DialogFragment() {
 
@@ -89,28 +93,40 @@ class GalleryDialogFragment : DialogFragment() {
     }
 
     fun refreshProjects() {
-        val projects = projectManager.getAllProjects()
-        val activeId = projectManager.getActiveProjectId()
-
-        if (projects.isEmpty()) {
-            textEmptyGallery.visibility = View.VISIBLE
-            recyclerGallery.visibility = View.GONE
-        } else {
-            textEmptyGallery.visibility = View.GONE
-            recyclerGallery.visibility = View.VISIBLE
-            adapter.setProjects(projects, activeId)
+        if (!isAdded) return
+        lifecycleScope.launch(Dispatchers.IO) {
+            val projects = projectManager.getAllProjects()
+            val activeId = projectManager.getActiveProjectId()
+            withContext(Dispatchers.Main) {
+                if (!isAdded) return@withContext
+                if (projects.isEmpty()) {
+                    textEmptyGallery.visibility = View.VISIBLE
+                    recyclerGallery.visibility = View.GONE
+                } else {
+                    textEmptyGallery.visibility = View.GONE
+                    recyclerGallery.visibility = View.VISIBLE
+                    adapter.setProjects(projects, activeId)
+                }
+            }
         }
     }
 
     private fun showDeleteConfirmationDialog(project: PaintingProject) {
+        if (!isAdded) return
         AlertDialog.Builder(requireContext())
             .setTitle("Delete Painting")
             .setMessage("Are you sure you want to permanently delete \"${project.title}\"? This cannot be undone.")
             .setPositiveButton("Delete") { _, _ ->
-                val success = projectManager.deleteProject(project.id)
-                if (success) {
-                    listener?.onProjectDeleted(project)
-                    refreshProjects()
+                lifecycleScope.launch(Dispatchers.IO) {
+                    val success = projectManager.deleteProject(project.id)
+                    withContext(Dispatchers.Main) {
+                        if (success) {
+                            listener?.onProjectDeleted(project)
+                            if (isAdded) {
+                                refreshProjects()
+                            }
+                        }
+                    }
                 }
             }
             .setNegativeButton("Cancel", null)
