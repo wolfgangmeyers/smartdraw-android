@@ -23,18 +23,25 @@ class MoreOptionsBottomSheet : BottomSheetDialogFragment() {
     var listener: Listener? = null
     var currentOpacityPercent: Int = 30
     var isSourceVisible: Boolean = true
+    var isCustomImageLoaded: Boolean = false
 
     private lateinit var textOpacityValue: TextView
     private lateinit var sliderOpacity: SeekBar
     private lateinit var btnToggleSourceVisibility: MaterialButton
+    private lateinit var btnChangeSourceImage: MaterialButton
 
     companion object {
         const val TAG = "MoreOptionsBottomSheet"
 
-        fun newInstance(opacityPercent: Int, isSourceVisible: Boolean): MoreOptionsBottomSheet {
+        fun newInstance(
+            opacityPercent: Int,
+            isSourceVisible: Boolean,
+            isCustomImageLoaded: Boolean = false
+        ): MoreOptionsBottomSheet {
             return MoreOptionsBottomSheet().apply {
                 currentOpacityPercent = opacityPercent
                 this.isSourceVisible = isSourceVisible
+                this.isCustomImageLoaded = isCustomImageLoaded
             }
         }
     }
@@ -50,7 +57,7 @@ class MoreOptionsBottomSheet : BottomSheetDialogFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        val btnChangeSourceImage: MaterialButton = view.findViewById(R.id.btnChangeSourceImage)
+        btnChangeSourceImage = view.findViewById(R.id.btnChangeSourceImage)
         textOpacityValue = view.findViewById(R.id.textOpacityValue)
         sliderOpacity = view.findViewById(R.id.sliderOpacity)
         btnToggleSourceVisibility = view.findViewById(R.id.btnToggleSourceVisibility)
@@ -61,6 +68,7 @@ class MoreOptionsBottomSheet : BottomSheetDialogFragment() {
         // Set initial states
         sliderOpacity.progress = currentOpacityPercent
         textOpacityValue.text = "$currentOpacityPercent%"
+        updateSourceImageButtonUI()
         updateVisibilityButtonUI()
 
         btnChangeSourceImage.setOnClickListener {
@@ -102,6 +110,14 @@ class MoreOptionsBottomSheet : BottomSheetDialogFragment() {
         btnRunHarnessModal.setOnClickListener {
             dismiss()
             listener?.onRunTestHarnessClicked()
+        }
+    }
+
+    private fun updateSourceImageButtonUI() {
+        if (isCustomImageLoaded) {
+            btnChangeSourceImage.text = "Change Source Image"
+        } else {
+            btnChangeSourceImage.text = "Load Source Image"
         }
     }
 

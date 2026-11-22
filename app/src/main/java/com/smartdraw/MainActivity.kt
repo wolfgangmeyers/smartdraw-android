@@ -25,13 +25,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.max
+import kotlin.math.roundToInt
 
-class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener {
+class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener, ToolSettingsBottomSheet.Listener {
 
     private lateinit var drawView: SmartDrawView
-    private lateinit var btnLoadImage: ImageButton
-    private lateinit var btnPencil: ImageButton
-    private lateinit var btnSmudge: ImageButton
+    private lateinit var btnActiveTool: ImageButton
     private lateinit var btnAutoColor: ImageButton
     private lateinit var btnResetView: ImageButton
     private lateinit var btnMoreOptions: ImageButton
@@ -40,6 +39,7 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener {
 
     private var currentOpacityPercent: Int = 30
     private var isSourceVisible: Boolean = true
+    private var isCustomImageLoaded: Boolean = false
 
     private lateinit var pickImageLauncher: ActivityResultLauncher<String>
 
@@ -54,9 +54,7 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener {
         setContentView(R.layout.activity_main)
 
         drawView = findViewById(R.id.smartDrawView)
-        btnLoadImage = findViewById(R.id.btnLoadImage)
-        btnPencil = findViewById(R.id.btnPencil)
-        btnSmudge = findViewById(R.id.btnSmudge)
+        btnActiveTool = findViewById(R.id.btnActiveTool)
         btnAutoColor = findViewById(R.id.btnAutoColor)
         btnResetView = findViewById(R.id.btnResetView)
         btnMoreOptions = findViewById(R.id.btnMoreOptions)
@@ -70,11 +68,11 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener {
             }
         }
 
-        // Default: Auto Color is ON for SmartDraw
+        // Default: Auto Color is ON for SmartDraw, default tool is Pencil
         drawView.useReferenceColors = true
         drawView.toolMode = SmartDrawView.ToolMode.PENCIL
 
-        updateToolSelectionUI()
+        updateActiveToolUI()
         updateAutoColorUI()
 
         // Load default reference image to start
@@ -83,20 +81,8 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener {
         drawView.setReferenceOpacity(currentOpacityPercent / 100f)
         drawView.setReferenceVisible(isSourceVisible)
 
-        btnLoadImage.setOnClickListener {
-            pickImageLauncher.launch("image/*")
-        }
-
-        btnPencil.setOnClickListener {
-            drawView.toolMode = SmartDrawView.ToolMode.PENCIL
-            updateToolSelectionUI()
-            statusText.text = "Tool: Pencil"
-        }
-
-        btnSmudge.setOnClickListener {
-            drawView.toolMode = SmartDrawView.ToolMode.SMUDGE
-            updateToolSelectionUI()
-            statusText.text = "Tool: Smudge"
+        btnActiveTool.setOnClickListener {
+            showToolSettingsModal()
         }
 
         btnAutoColor.setOnClickListener {
@@ -119,10 +105,44 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener {
         }
     }
 
+    private fun showToolSettingsModal() {
+        val sheet = ToolSettingsBottomSheet.newInstance(
+            toolMode = drawView.toolMode,
+            brushRadius = drawView.getBrushSize(),
+            brushOpacity = drawView.brushOpacity
+        )
+        sheet.listener = this
+        sheet.show(supportFragmentManager, ToolSettingsBottomSheet.TAG)
+    }
+
     private fun showMoreOptionsModal() {
-        val sheet = MoreOptionsBottomSheet.newInstance(currentOpacityPercent, isSourceVisible)
+        val sheet = MoreOptionsBottomSheet.newInstance(
+            opacityPercent = currentOpacityPercent,
+            isSourceVisible = isSourceVisible,
+            isCustomImageLoaded = isCustomImageLoaded
+        )
         sheet.listener = this
         sheet.show(supportFragmentManager, MoreOptionsBottomSheet.TAG)
+    }
+
+    // --- ToolSettingsBottomSheet.Listener Implementation ---
+
+    override fun onToolSelected(toolMode: SmartDrawView.ToolMode) {
+        drawView.toolMode = toolMode
+        updateActiveToolUI()
+        val name = if (toolMode == SmartDrawView.ToolMode.PENCIL) "Pencil" else "Smudge"
+        statusText.text = "Tool: $name (size: ${drawView.getBrushSize().roundToInt()} px)"
+    }
+
+    override fun onBrushSizeChanged(radius: Float) {
+        drawView.setBrushSize(radius)
+        val name = if (drawView.toolMode == SmartDrawView.ToolMode.PENCIL) "Pencil" else "Smudge"
+        statusText.text = "Tool: $name (size: ${radius.roundToInt()} px)"
+    }
+
+    override fun onBrushOpacityChanged(opacity: Float) {
+        drawView.brushOpacity = opacity
+        statusText.text = "Brush opacity: ${(opacity * 100f).roundToInt()}%"
     }
 
     // --- MoreOptionsBottomSheet.Listener Implementation ---
@@ -172,17 +192,13 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener {
 
     // --- UI State Helpers ---
 
-    private fun updateToolSelectionUI() {
+    private fun updateActiveToolUI() {
         if (drawView.toolMode == SmartDrawView.ToolMode.PENCIL) {
-            btnPencil.setBackgroundResource(R.drawable.bg_tool_button_active)
-            btnPencil.setColorFilter(getColor(android.R.color.white))
-            btnSmudge.setBackgroundResource(R.drawable.bg_tool_button_inactive)
-            btnSmudge.setColorFilter(0xFFB0B0B0.toInt())
+            btnActiveTool.setImageResource(R.drawable.ic_pencil)
+            btnActiveTool.contentDescription = "Active Tool: Pencil (Tap for settings)"
         } else {
-            btnPencil.setBackgroundResource(R.drawable.bg_tool_button_inactive)
-            btnPencil.setColorFilter(0xFFB0B0B0.toInt())
-            btnSmudge.setBackgroundResource(R.drawable.bg_tool_button_active)
-            btnSmudge.setColorFilter(getColor(android.R.color.white))
+            btnActiveTool.setImageResource(R.drawable.ic_smudge)
+            btnActiveTool.contentDescription = "Active Tool: Smudge (Tap for settings)"
         }
     }
 
@@ -194,6 +210,13 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener {
             btnAutoColor.setBackgroundResource(R.drawable.bg_tool_button_inactive)
             btnAutoColor.setColorFilter(0xFFB0B0B0.toInt())
         }
+    }
+
+    private fun setButtonsEnabled(enabled: Boolean) {
+        btnActiveTool.isEnabled = enabled
+        btnAutoColor.isEnabled = enabled
+        btnResetView.isEnabled = enabled
+        btnMoreOptions.isEnabled = enabled
     }
 
     private fun loadImageFromUri(uri: Uri) {
@@ -320,60 +343,37 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener {
                 if (loadedBitmap == null) {
                     withContext(Dispatchers.Main) {
                         progressBar.visibility = View.GONE
-                        Toast.makeText(this@MainActivity, "Failed to load image", Toast.LENGTH_SHORT).show()
-                        statusText.text = "Failed to load image"
+                        Toast.makeText(this@MainActivity, "Failed to decode image", Toast.LENGTH_SHORT).show()
+                        statusText.text = "Failed to decode image"
                     }
                     return@launch
                 }
 
-                // Downscale reference image for GPU texture if it exceeds MAX_IMAGE_DIMENSION
-                // but preserve its exact aspect ratio
-                val maxDim = MAX_IMAGE_DIMENSION
-                val maxSide = max(loadedBitmap.width, loadedBitmap.height)
-                val referenceBitmap = if (maxSide > maxDim) {
-                    val scale = maxDim.toFloat() / maxSide
-                    val w = (loadedBitmap.width * scale).toInt()
-                    val h = (loadedBitmap.height * scale).toInt()
-                    Bitmap.createScaledBitmap(loadedBitmap, w, h, true)
+                val finalBitmap = if (loadedBitmap.width != targetW || loadedBitmap.height != targetH) {
+                    Bitmap.createScaledBitmap(loadedBitmap, targetW, targetH, true)
                 } else {
                     loadedBitmap
                 }
 
                 withContext(Dispatchers.Main) {
                     progressBar.visibility = View.GONE
-
-                    // 1. Reinitialize canvas dimensions to match source aspect ratio and resolution
+                    isCustomImageLoaded = true
                     drawView.setCanvasDimensions(targetW, targetH)
-
-                    // 2. Set reference image and UI state
-                    drawView.setReferenceImage(referenceBitmap)
-                    drawView.setReferenceOpacity(currentOpacityPercent / 100f)
-                    drawView.setReferenceVisible(isSourceVisible)
+                    drawView.setReferenceImage(finalBitmap)
                     drawView.useReferenceColors = true
                     updateAutoColorUI()
-
-                    val msg = "Canvas created: ${targetW}×${targetH} (Source: ${loadedBitmap.width}×${loadedBitmap.height})"
-                    statusText.text = msg
-                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+                    statusText.text = "Canvas created: ${targetW}×${targetH} px"
+                    Toast.makeText(this@MainActivity, "Loaded ${targetW}×${targetH} canvas", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error importing image", e)
                 withContext(Dispatchers.Main) {
                     progressBar.visibility = View.GONE
-                    Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                    statusText.text = "Error importing image"
+                    Toast.makeText(this@MainActivity, "Import error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    statusText.text = "Import error"
                 }
             }
         }
-    }
-
-    private fun setButtonsEnabled(enabled: Boolean) {
-        btnLoadImage.isEnabled = enabled
-        btnPencil.isEnabled = enabled
-        btnSmudge.isEnabled = enabled
-        btnAutoColor.isEnabled = enabled
-        btnResetView.isEnabled = enabled
-        btnMoreOptions.isEnabled = enabled
     }
 
     private fun runHarnessAsync() {
@@ -426,10 +426,5 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener {
                 Toast.makeText(this@MainActivity, completionMessage, Toast.LENGTH_LONG).show()
             }
         }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        drawView.release()
     }
 }

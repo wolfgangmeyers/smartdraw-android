@@ -19,17 +19,13 @@ class MainActivityUiTest {
         val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
         val activity = controller.get()
 
-        val btnLoadImage: ImageButton = activity.findViewById(R.id.btnLoadImage)
-        val btnPencil: ImageButton = activity.findViewById(R.id.btnPencil)
-        val btnSmudge: ImageButton = activity.findViewById(R.id.btnSmudge)
+        val btnActiveTool: ImageButton = activity.findViewById(R.id.btnActiveTool)
         val btnAutoColor: ImageButton = activity.findViewById(R.id.btnAutoColor)
         val btnResetView: ImageButton = activity.findViewById(R.id.btnResetView)
         val btnMoreOptions: ImageButton = activity.findViewById(R.id.btnMoreOptions)
         val drawView: SmartDrawView = activity.findViewById(R.id.smartDrawView)
 
-        assertNotNull(btnLoadImage)
-        assertNotNull(btnPencil)
-        assertNotNull(btnSmudge)
+        assertNotNull(btnActiveTool)
         assertNotNull(btnAutoColor)
         assertNotNull(btnResetView)
         assertNotNull(btnMoreOptions)
@@ -39,13 +35,19 @@ class MainActivityUiTest {
         assertEquals(SmartDrawView.ToolMode.PENCIL, drawView.toolMode)
         assertTrue(drawView.useReferenceColors)
 
-        // Switch to smudge
-        btnSmudge.performClick()
+        // Tool settings callbacks
+        activity.onToolSelected(SmartDrawView.ToolMode.SMUDGE)
         assertEquals(SmartDrawView.ToolMode.SMUDGE, drawView.toolMode)
 
-        // Switch back to pencil
-        btnPencil.performClick()
+        activity.onToolSelected(SmartDrawView.ToolMode.PENCIL)
         assertEquals(SmartDrawView.ToolMode.PENCIL, drawView.toolMode)
+
+        // Brush size and opacity changes
+        activity.onBrushSizeChanged(32.0f)
+        assertEquals(32.0f, drawView.getBrushSize(), 0.001f)
+
+        activity.onBrushOpacityChanged(0.75f)
+        assertEquals(0.75f, drawView.brushOpacity, 0.001f)
 
         // Toggle auto color
         btnAutoColor.performClick()
@@ -68,5 +70,18 @@ class MainActivityUiTest {
         activity.onResetCanvasViewClicked()
         assertEquals(1.0f, drawView.viewportScale, 0.001f)
         assertEquals(0f, drawView.viewportRotationDegrees, 0.001f)
+    }
+
+    @Test
+    fun testToolSettingsBottomSheetLifecycle() {
+        val sheet = ToolSettingsBottomSheet.newInstance(
+            toolMode = SmartDrawView.ToolMode.PENCIL,
+            brushRadius = 24.0f,
+            brushOpacity = 0.8f
+        )
+        assertNotNull(sheet)
+        assertEquals(SmartDrawView.ToolMode.PENCIL, sheet.currentTool)
+        assertEquals(24.0f, sheet.currentBrushRadius, 0.001f)
+        assertEquals(0.8f, sheet.currentBrushOpacity, 0.001f)
     }
 }

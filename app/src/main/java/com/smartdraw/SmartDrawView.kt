@@ -27,7 +27,21 @@ class SmartDrawView @JvmOverloads constructor(
     var brushColor: Int = Color.BLACK
     var useReferenceColors: Boolean = false
     var brushRadius: Float = 20.0f
+        get() = if (::touchHandler.isInitialized) touchHandler.baseRadius else field
+        set(value) {
+            field = value
+            if (::touchHandler.isInitialized) {
+                touchHandler.baseRadius = value
+            }
+        }
     var brushOpacity: Float = 1.0f
+        get() = if (::touchHandler.isInitialized) touchHandler.baseOpacity else field
+        set(value) {
+            field = value
+            if (::touchHandler.isInitialized) {
+                touchHandler.baseOpacity = value
+            }
+        }
 
     // Intrinsic canvas dimensions for offscreen drawing (dynamic, defaults to 1024x1024)
     var canvasWidth: Int = 1024
@@ -97,92 +111,94 @@ class SmartDrawView @JvmOverloads constructor(
     private var prevFingerAngle = 0f
     private var isNavigating = false
 
-    private val touchHandler = TouchInputHandler(
-        baseRadius = brushRadius,
-        baseOpacity = brushOpacity,
-        screenToCanvasTransformer = { sx, sy ->
-            screenToCanvas(sx, sy)
-        },
-        transformPoint = { sx, sy ->
-            screenToCanvas(sx, sy)
-        },
-        onStrokeStart = { pt ->
-            val preview = if (useReferenceColors) {
-                rendererInstance?.referenceLayer?.sampleColor(
-                    canvasX = pt.x,
-                    canvasY = pt.y,
-                    canvasWidth = canvasWidth.toFloat(),
-                    canvasHeight = canvasHeight.toFloat(),
-                    defaultColor = brushColor
-                ) ?: brushColor
-            } else {
-                brushColor
-            }
-            activeStrokeStartColor = preview
-            queueEvent {
-                val r = rendererInstance ?: return@queueEvent
-                if (toolMode == ToolMode.PENCIL) {
-                    r.beginActiveStroke(preview)
-                }
-                requestRender()
-            }
-        },
-        onStrokeSegment = { curve, radius, opacity ->
-            queueEvent {
-                val r = rendererInstance ?: return@queueEvent
-                when (toolMode) {
-                    ToolMode.PENCIL -> {
-                        r.drawActiveStrokeSegment(
-                            curve = curve,
-                            radius = radius,
-                            opacity = opacity,
-                            previewColor = activeStrokeStartColor,
-                            spacingRatio = 0.2f
-                        )
-                    }
-                    ToolMode.SMUDGE -> {
-                        r.smudgeBezier(
-                            curve = curve,
-                            radius = radius,
-                            blurStrength = 2.5f,
-                            opacity = opacity,
-                            spacingRatio = 0.2f
-                        )
-                    }
-                }
-                requestRender()
-            }
-        },
-        onStrokeEnd = {
-            queueEvent {
-                val r = rendererInstance ?: return@queueEvent
-                if (toolMode == ToolMode.PENCIL) {
-                    r.endActiveStroke(
-                        useReferenceColors = useReferenceColors,
-                        defaultColor = brushColor,
-                        spacingRatio = 0.2f
-                    )
-                }
-                requestRender()
-            }
-        },
-        onStrokeCancel = {
-            queueEvent {
-                rendererInstance?.clearActiveStroke()
-                requestRender()
-            }
-        }
-    )
+    private lateinit var touchHandler: TouchInputHandler
 
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDoubleTap(e: MotionEvent): Boolean {
-            if (touchHandler.isStylusActive) return false
+            if (::touchHandler.isInitialized && touchHandler.isStylusActive) return false
             resetView()
             return true
         }
     })
 
     init {
+        touchHandler = TouchInputHandler(
+            baseRadius = brushRadius,
+            baseOpacity = brushOpacity,
+            screenToCanvasTransformer = { sx, sy ->
+                screenToCanvas(sx, sy)
+            },
+            transformPoint = { sx, sy ->
+                screenToCanvas(sx, sy)
+            },
+            onStrokeStart = { pt ->
+                val preview = if (useReferenceColors) {
+                    rendererInstance?.referenceLayer?.sampleColor(
+                        canvasX = pt.x,
+                        canvasY = pt.y,
+                        canvasWidth = canvasWidth.toFloat(),
+                        canvasHeight = canvasHeight.toFloat(),
+                        defaultColor = brushColor
+                    ) ?: brushColor
+                } else {
+                    brushColor
+                }
+                activeStrokeStartColor = preview
+                queueEvent {
+                    val r = rendererInstance ?: return@queueEvent
+                    if (toolMode == ToolMode.PENCIL) {
+                        r.beginActiveStroke(preview)
+                    }
+                    requestRender()
+                }
+            },
+            onStrokeSegment = { curve, radius, opacity ->
+                queueEvent {
+                    val r = rendererInstance ?: return@queueEvent
+                    when (toolMode) {
+                        ToolMode.PENCIL -> {
+                            r.drawActiveStrokeSegment(
+                                curve = curve,
+                                radius = radius,
+                                opacity = opacity,
+                                previewColor = activeStrokeStartColor,
+                                spacingRatio = 0.2f
+                            )
+                        }
+                        ToolMode.SMUDGE -> {
+                            r.smudgeBezier(
+                                curve = curve,
+                                radius = radius,
+                                blurStrength = 2.5f,
+                                opacity = opacity,
+                                spacingRatio = 0.2f
+                            )
+                        }
+                    }
+                    requestRender()
+                }
+            },
+            onStrokeEnd = {
+                queueEvent {
+                    val r = rendererInstance ?: return@queueEvent
+                    if (toolMode == ToolMode.PENCIL) {
+                        r.endActiveStroke(
+                            useReferenceColors = useReferenceColors,
+                            defaultColor = brushColor,
+                            spacingRatio = 0.2f
+                        )
+                    }
+                    requestRender()
+                }
+            },
+            onStrokeCancel = {
+                queueEvent {
+                    rendererInstance?.clearActiveStroke()
+                    requestRender()
+                }
+            }
+        )
+
         setEGLContextClientVersion(3)
         setRenderer(this)
         renderMode = RENDERMODE_WHEN_DIRTY
@@ -289,6 +305,18 @@ class SmartDrawView @JvmOverloads constructor(
         viewportTranslationX = (w - canvasWidth * viewportScale) * 0.5f
         viewportTranslationY = (h - canvasHeight * viewportScale) * 0.5f
     }
+
+    fun setBrushSize(radius: Float) {
+        touchHandler.baseRadius = radius
+    }
+
+    fun getBrushSize(): Float = touchHandler.baseRadius
+
+    fun setBrushOpacityValue(opacity: Float) {
+        touchHandler.baseOpacity = opacity
+    }
+
+    fun getBrushOpacityValue(): Float = touchHandler.baseOpacity
 
     fun clearCanvas() {
         queueEvent {
