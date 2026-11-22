@@ -144,6 +144,7 @@ class SmartDrawRenderer(
             return defaultColor
         }
 
+        // 1. Calculate final color by averaging reference pixels covered by the stroke
         val finalColor = if (useReferenceColors) {
             referenceLayer.computeAverageCoveredColor(
                 points = activeStrokePoints,
@@ -156,8 +157,7 @@ class SmartDrawRenderer(
             defaultColor
         }
 
-        clearActiveStroke()
-
+        // 2. Commit all accumulated segments of this stroke to baseFbo using the final average color
         baseFbo.bind()
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFuncSeparate(
@@ -196,9 +196,8 @@ class SmartDrawRenderer(
         GLES30.glDisable(GLES30.GL_BLEND)
         baseFbo.unbind()
 
-        activeStrokePoints.clear()
-        activeStrokeRadii.clear()
-        activeStrokeSegments.clear()
+        // 3. Clear active stroke buffer now that baseFbo has received the permanent stroke
+        clearActiveStroke()
 
         return finalColor
     }

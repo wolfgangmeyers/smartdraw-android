@@ -182,7 +182,7 @@ class SmartDrawTest {
         assertEquals(0, Color.blue(avgRed))
 
         // 2. Stroke spanning symmetrically across red and blue halves
-        val spanPoints = listOf(Point2D(400f, 512f), Point2D(600f, 512f))
+        val spanPoints = listOf(Point2D(412f, 512f), Point2D(612f, 512f))
         val spanRadii = listOf(80f, 80f)
         val avgPurple = refLayer.computeAverageCoveredColor(spanPoints, spanRadii)
         // Red and Blue should be roughly equal and non-zero
