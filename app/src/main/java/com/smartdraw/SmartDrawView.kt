@@ -29,9 +29,11 @@ class SmartDrawView @JvmOverloads constructor(
     var brushRadius: Float = 20.0f
     var brushOpacity: Float = 1.0f
 
-    // Fixed intrinsic canvas dimensions for offscreen drawing
-    val canvasWidth = 1024
-    val canvasHeight = 1024
+    // Intrinsic canvas dimensions for offscreen drawing (dynamic, defaults to 1024x1024)
+    var canvasWidth: Int = 1024
+        private set
+    var canvasHeight: Int = 1024
+        private set
 
     // Viewport affine transform state: Screen = R(theta) * (viewportScale * Canvas) + viewportTranslation
     var viewportTranslationX: Float = 0f
@@ -268,12 +270,18 @@ class SmartDrawView @JvmOverloads constructor(
     }
 
     /**
-     * Center canvas in the viewport at 1:1 scale (scale = 1.0f) and 0 degrees rotation.
+     * Center canvas in the viewport, fitting it to the screen if it is larger than the surface.
+     * Sets rotation to 0 degrees.
      */
     fun resetView() {
-        viewportScale = 1.0f
+        val vw = if (surfaceWidth > 0) surfaceWidth else canvasWidth
+        val vh = if (surfaceHeight > 0) surfaceHeight else canvasHeight
+        
+        // Scale to fit screen with padding if canvas is larger than surface
+        val fitScale = minOf(1.0f, minOf(vw.toFloat() / canvasWidth.toFloat(), vh.toFloat() / canvasHeight.toFloat()))
+        viewportScale = if (fitScale > 0f) fitScale else 1.0f
         viewportRotationDegrees = 0f
-        centerCanvas(surfaceWidth, surfaceHeight)
+        centerCanvas(vw, vh)
         requestRender()
     }
 
@@ -315,6 +323,20 @@ class SmartDrawView @JvmOverloads constructor(
             rendererInstance?.referenceLayer?.isVisible = visible
             requestRender()
         }
+    }
+
+    /**
+     * Reinitialize the canvas dimensions to match a new aspect ratio and resolution.
+     * Reallocates FBOs, clears to white, resets viewport scale and centers the canvas.
+     */
+    fun setCanvasDimensions(width: Int, height: Int) {
+        canvasWidth = width
+        canvasHeight = height
+        queueEvent {
+            rendererInstance?.resizeCanvas(width, height)
+            requestRender()
+        }
+        resetView()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {

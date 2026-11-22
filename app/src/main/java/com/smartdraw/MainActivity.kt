@@ -46,6 +46,7 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener {
     companion object {
         private const val TAG = "SmartDraw-Main"
         private const val MAX_IMAGE_DIMENSION = 2048
+        const val MAX_GPU_TEXTURE_DIMENSION = 8192
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -196,7 +197,110 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener {
     }
 
     private fun loadImageFromUri(uri: Uri) {
-        statusText.text = "Loading source image..."
+        statusText.text = "Reading image info..."
+        progressBar.visibility = View.VISIBLE
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                // Decode bounds first
+                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                contentResolver.openInputStream(uri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream, null, options)
+                }
+
+                val origW = options.outWidth
+                val origH = options.outHeight
+
+                if (origW <= 0 || origH <= 0) {
+                    withContext(Dispatchers.Main) {
+                        progressBar.visibility = View.GONE
+                        Toast.makeText(this@MainActivity, "Failed to read image dimensions", Toast.LENGTH_SHORT).show()
+                        statusText.text = "Failed to read image dimensions"
+                    }
+                    return@launch
+                }
+
+                withContext(Dispatchers.Main) {
+                    progressBar.visibility = View.GONE
+                    showImportResolutionDialog(uri, origW, origH)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error inspecting image bounds", e)
+                withContext(Dispatchers.Main) {
+                    progressBar.visibility = View.GONE
+                    Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    statusText.text = "Error reading image"
+                }
+            }
+        }
+    }
+
+    private fun showImportResolutionDialog(uri: Uri, origW: Int, origH: Int) {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_import_image, null)
+        val textOriginal = dialogView.findViewById<TextView>(R.id.textOriginalDimensions)
+        val textScale = dialogView.findViewById<TextView>(R.id.textScaleMultiplier)
+        val sliderScale = dialogView.findViewById<android.widget.SeekBar>(R.id.sliderScale)
+        val textResult = dialogView.findViewById<TextView>(R.id.textResultDimensions)
+        val textGpuWarning = dialogView.findViewById<TextView>(R.id.textGpuLimitWarning)
+        val btnCancel = dialogView.findViewById<android.widget.Button>(R.id.btnCancelImport)
+        val btnConfirm = dialogView.findViewById<android.widget.Button>(R.id.btnConfirmImport)
+
+        val origMp = (origW.toLong() * origH.toLong()) / 1_000_000.0
+        textOriginal.text = "Original: $origW × $origH (%.1f MP)".format(origMp)
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(dialogView)
+            .setCancelable(true)
+            .create()
+
+        fun updateResolutionPreview(scale: Int) {
+            val targetW = origW * scale
+            val targetH = origH * scale
+            val targetMp = (targetW.toLong() * targetH.toLong()) / 1_000_000.0
+
+            textScale.text = "${scale}x"
+            textResult.text = "Canvas Resolution: $targetW × $targetH (%.1f MP)".format(targetMp)
+
+            if (targetW > MAX_GPU_TEXTURE_DIMENSION || targetH > MAX_GPU_TEXTURE_DIMENSION) {
+                textGpuWarning.visibility = View.VISIBLE
+                textGpuWarning.text = "Warning: Exceeds GPU limit ($MAX_GPU_TEXTURE_DIMENSION px). Please select a lower scale."
+                btnConfirm.isEnabled = false
+            } else {
+                textGpuWarning.visibility = View.GONE
+                btnConfirm.isEnabled = true
+            }
+        }
+
+        // Slider progress: 0 to 7 -> scale: 1 to 8
+        // Default to 1x (or 2x if original is small)
+        val defaultScale = if (max(origW, origH) <= 1024) 2 else 1
+        sliderScale.progress = defaultScale - 1
+        updateResolutionPreview(defaultScale)
+
+        sliderScale.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                val scale = progress + 1
+                updateResolutionPreview(scale)
+            }
+            override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
+        })
+
+        btnCancel.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        btnConfirm.setOnClickListener {
+            dialog.dismiss()
+            val selectedScale = sliderScale.progress + 1
+            performImageImport(uri, origW * selectedScale, origH * selectedScale)
+        }
+
+        dialog.show()
+    }
+
+    private fun performImageImport(uri: Uri, targetW: Int, targetH: Int) {
+        statusText.text = "Importing image and creating canvas (${targetW}×${targetH})..."
         progressBar.visibility = View.VISIBLE
 
         CoroutineScope(Dispatchers.IO).launch {
@@ -222,10 +326,11 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener {
                     return@launch
                 }
 
-                // Scale to max 2048x2048 preserving aspect ratio for mobile GPU memory
+                // Downscale reference image for GPU texture if it exceeds MAX_IMAGE_DIMENSION
+                // but preserve its exact aspect ratio
                 val maxDim = MAX_IMAGE_DIMENSION
                 val maxSide = max(loadedBitmap.width, loadedBitmap.height)
-                val finalBitmap = if (maxSide > maxDim) {
+                val referenceBitmap = if (maxSide > maxDim) {
                     val scale = maxDim.toFloat() / maxSide
                     val w = (loadedBitmap.width * scale).toInt()
                     val h = (loadedBitmap.height * scale).toInt()
@@ -236,23 +341,27 @@ class MainActivity : AppCompatActivity(), MoreOptionsBottomSheet.Listener {
 
                 withContext(Dispatchers.Main) {
                     progressBar.visibility = View.GONE
-                    // Replace source image on GPU and ReferenceColorSampler without clearing the user's painting
-                    drawView.setReferenceImage(finalBitmap)
+
+                    // 1. Reinitialize canvas dimensions to match source aspect ratio and resolution
+                    drawView.setCanvasDimensions(targetW, targetH)
+
+                    // 2. Set reference image and UI state
+                    drawView.setReferenceImage(referenceBitmap)
                     drawView.setReferenceOpacity(currentOpacityPercent / 100f)
                     drawView.setReferenceVisible(isSourceVisible)
                     drawView.useReferenceColors = true
                     updateAutoColorUI()
 
-                    val msg = "Source image updated (${finalBitmap.width}x${finalBitmap.height})"
+                    val msg = "Canvas created: ${targetW}×${targetH} (Source: ${loadedBitmap.width}×${loadedBitmap.height})"
                     statusText.text = msg
                     Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error loading image", e)
+                Log.e(TAG, "Error importing image", e)
                 withContext(Dispatchers.Main) {
                     progressBar.visibility = View.GONE
                     Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                    statusText.text = "Error loading image"
+                    statusText.text = "Error importing image"
                 }
             }
         }

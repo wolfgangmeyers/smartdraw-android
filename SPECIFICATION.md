@@ -35,14 +35,21 @@ SmartDraw Android is a high-performance native Android painting application desi
 
 ## 3. Graphics & Shader Pipeline (OpenGL ES 3.0)
 
-### 3.1 Layer Architecture & Framebuffers
+### 3.1 Layer Architecture, Dynamic Dimensions & Framebuffers
 
-SmartDraw uses a multi-layer composition pipeline:
+SmartDraw uses a multi-layer composition pipeline operating on dynamic canvas dimensions $(W_{\text{canvas}} \times H_{\text{canvas}})$:
 
 1. **Background Layer**: Generates or uploads a checkered transparency pattern or solid background color.
 2. **Reference Image Layer**: GPU texture (`GL_TEXTURE_2D`) containing the target painting image, with uniform opacity (`u_referenceOpacity`) and toggleable visibility (`u_renderReference`).
 3. **Drawing Layer (Base Layer)**: Main user painting canvas stored in an FBO texture target (`GL_RGBA8`).
 4. **Compositing Pass**: Fullscreen or transformed quad shader combining background, drawing layer, reference layer, and UI overlay with alpha blending. During viewport navigation (pan and zoom), the canvas quad is rendered transformed by the Viewport Model-View-Projection (MVP) matrix directly into the screen framebuffer (`GL_FRAMEBUFFER 0`).
+5. **Dynamic Aspect Ratio & Resolution Scaling**:
+   - The canvas dimensions $(W_{\text{canvas}}, H_{\text{canvas}})$ dynamically adapt to the aspect ratio of imported source images:
+     $$W_{\text{canvas}} = W_{\text{src}} \times \text{scale}, \quad H_{\text{canvas}} = H_{\text{src}} \times \text{scale}$$
+   - When an image is imported, the user selects a resolution scale from $1\times$ to $8\times$.
+   - FBOs (`baseFbo`, `scratchFbo`, `compositeFbo`, `activeStrokeFbo`) are cleanly reallocated to $(W_{\text{canvas}}, H_{\text{canvas}})$ via `SmartDrawRenderer.resizeCanvas()`.
+   - The reference layer texture maps $1:1$ directly onto the canvas space without letterboxing distortion because both share the exact same aspect ratio.
+   - The compositing quad scales by $(W_{\text{canvas}}, H_{\text{canvas}})$ in its model matrix, ensuring rectangular canvases render with their true geometric proportions letterboxed against the screen viewport.
 
 ### 3.2 Circle Brush Shader (`CircleBrushShader.kt`)
 
@@ -326,7 +333,40 @@ Autonomous painting engine that iterates toward the reference image:
 
 ---
 
-## 9. Pragmatic Bezier Test Harness (`BezierTestHarness.kt`)
+## 10. Source Image Import & Dynamic Canvas Resolution Scaling
+
+### 10.1 Aspect Ratio Preservation Architecture
+
+Previous iterations fixed the offscreen drawing FBO to a square ($1024 \times 1024$), causing non-square imported images to distort or letterbox with unused canvas boundaries. SmartDraw's dynamic canvas architecture eliminates this constraint:
+
+1. **Aspect Ratio Parity**:
+   - The canvas aspect ratio is defined directly by the source image:
+     $$\frac{W_{\text{canvas}}}{H_{\text{canvas}}} = \frac{W_{\text{src}}}{H_{\text{src}}}$$
+   - Because canvas space and reference space share the identical aspect ratio $(W : H)$, the reference image maps $1:1$ across the entire canvas surface without distortion, stretch, or black letterbox borders.
+   - In `SmartDrawRenderer.composite()`, the model matrix applies:
+     $$\text{scaleM}(M_{\text{model}}, 0, S \cdot W_{\text{canvas}}, S \cdot H_{\text{canvas}}, 1.0f)$$
+     This preserves true rectangular proportions on screen across any orientation or display size.
+
+### 10.2 Import Modal Dialog & Resolution Multiplier ($1\times$ to $8\times$)
+
+When a user selects an image from the device gallery or file provider (via "Load Source Image" or "Change Source Image"):
+
+1. **Pre-flight Bounds Inspection**:
+   - Image bounds $(W_{\text{src}}, H_{\text{src}})$ are extracted efficiently using `BitmapFactory.Options.inJustDecodeBounds = true` without allocating full pixel buffers in memory.
+2. **Interactive Resolution Selection**:
+   - An import modal displays:
+     - Original source dimensions and megapixel count: e.g., `Original: 1200 × 1600 (1.9 MP)`.
+     - An integer slider spanning $1\times$ to $8\times$ resolution multiplier.
+     - Real-time resulting canvas dimensions and megapixel calculation: e.g., at $2\times$, `Canvas Resolution: 2400 × 3200 (7.7 MP)`.
+     - GPU texture ceiling guard: checks against max texture size ($8192\text{ px}$). If $W_{\text{canvas}} > 8192$ or $H_{\text{canvas}} > 8192$, displays a warning and disables the confirm button to prevent GPU memory faults or device OOM.
+3. **Execution on Confirmation**:
+   - Upon clicking "Import & Create Canvas":
+     1. Allocates and resizes GLES FBOs to $(W_{\text{canvas}}, H_{\text{canvas}})$, clearing the canvas to opaque white.
+     2. Sets the reference image layer texture and enables auto-color mode (`useReferenceColors = true`).
+     3. Calls `resetView()`, which calculates the aspect-fit scale factor:
+        $$S_{\text{fit}} = \min\left(1.0, \min\left(\frac{W_{\text{surface}}}{W_{\text{canvas}}}, \frac{H_{\text{surface}}}{H_{\text{canvas}}}\right)\right)$$
+        and centers the newly proportioned canvas inside the display viewport.
+
 
 Built for automated verification and regression testing:
 

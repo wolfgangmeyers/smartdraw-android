@@ -10,13 +10,17 @@ import kotlin.math.hypot
 import kotlin.math.max
 
 class SmartDrawRenderer(
-    val width: Int,
-    val height: Int
+    var width: Int,
+    var height: Int
 ) {
-    val baseFbo = GlesFbo(width, height)
-    val scratchFbo = GlesFbo(width, height)
-    val compositeFbo = GlesFbo(width, height)
-    val activeStrokeFbo = GlesFbo(width, height)
+    var baseFbo = GlesFbo(width, height)
+        private set
+    var scratchFbo = GlesFbo(width, height)
+        private set
+    var compositeFbo = GlesFbo(width, height)
+        private set
+    var activeStrokeFbo = GlesFbo(width, height)
+        private set
 
     var hasActiveStroke: Boolean = false
 
@@ -58,6 +62,32 @@ class SmartDrawRenderer(
 
     fun clearCanvas(r: Float = 1.0f, g: Float = 1.0f, b: Float = 1.0f, a: Float = 1.0f) {
         clear(r, g, b, a)
+    }
+
+    /**
+     * Dynamically resize the drawing canvas and reallocate FBOs.
+     * Initializes base and scratch FBOs with an opaque white background.
+     */
+    fun resizeCanvas(newWidth: Int, newHeight: Int) {
+        if (width == newWidth && height == newHeight) {
+            clear(1.0f, 1.0f, 1.0f, 1.0f)
+            return
+        }
+
+        width = newWidth
+        height = newHeight
+
+        baseFbo.release()
+        scratchFbo.release()
+        compositeFbo.release()
+        activeStrokeFbo.release()
+
+        baseFbo = GlesFbo(width, height)
+        scratchFbo = GlesFbo(width, height)
+        compositeFbo = GlesFbo(width, height)
+        activeStrokeFbo = GlesFbo(width, height)
+
+        clear(1.0f, 1.0f, 1.0f, 1.0f)
     }
 
     fun loadBaseBitmap(bitmap: Bitmap) {

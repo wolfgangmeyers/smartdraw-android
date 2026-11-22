@@ -220,4 +220,34 @@ class SmartDrawTest {
 
         bitmap.recycle()
     }
+
+    @Test
+    fun testDynamicAspectRatioAndResolutionScaling() {
+        // Original image: 800 x 1200 (aspect ratio 2:3)
+        val srcWidth = 800
+        val srcHeight = 1200
+        val scale = 3 // 3x resolution
+
+        val targetWidth = srcWidth * scale
+        val targetHeight = srcHeight * scale
+        assertEquals(2400, targetWidth)
+        assertEquals(3600, targetHeight)
+
+        val srcAspect = srcWidth.toFloat() / srcHeight.toFloat()
+        val targetAspect = targetWidth.toFloat() / targetHeight.toFloat()
+        assertEquals(srcAspect, targetAspect, 0.0001f)
+
+        // Viewport fitting check: Surface is 1080 x 1920
+        val surfaceW = 1080
+        val surfaceH = 1920
+        val fitScale = minOf(1.0f, minOf(surfaceW.toFloat() / targetWidth, surfaceH.toFloat() / targetHeight))
+        // 1080 / 2400 = 0.45, 1920 / 3600 = 0.5333... fitScale should be 0.45
+        assertEquals(0.45f, fitScale, 0.001f)
+
+        // Screen center calculation
+        val translationX = (surfaceW - targetWidth * fitScale) * 0.5f
+        val translationY = (surfaceH - targetHeight * fitScale) * 0.5f
+        assertEquals(0f, translationX, 0.001f) // 1080 - 1080 = 0
+        assertEquals(150f, translationY, 0.001f) // (1920 - 1620) / 2 = 150
+    }
 }

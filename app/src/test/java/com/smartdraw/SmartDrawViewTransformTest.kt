@@ -91,4 +91,18 @@ class SmartDrawViewTransformTest {
         assertEquals(1.0f, view.viewportScale, 0.001f)
         assertEquals(0f, view.viewportRotationDegrees, 0.001f)
     }
+
+    @Test
+    fun testSetCanvasDimensionsUpdatesDimensionsAndFitsViewport() {
+        // Set dynamic dimensions (e.g., 2000 x 3000)
+        view.setCanvasDimensions(2000, 3000)
+        assertEquals(2000, view.canvasWidth)
+        assertEquals(3000, view.canvasHeight)
+
+        // Surface is default 1024 x 1024
+        // fitScale = min(1.0, min(1024/2000, 1024/3000)) = 1024 / 3000 ≈ 0.34133
+        val expectedScale = 1024f / 3000f
+        assertEquals(expectedScale, view.viewportScale, 0.001f)
+        assertEquals(0f, view.viewportRotationDegrees, 0.001f)
+    }
 }
