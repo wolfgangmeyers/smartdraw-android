@@ -7,8 +7,6 @@ import android.opengl.GLSurfaceView
 import android.util.AttributeSet
 import android.view.GestureDetector
 import android.view.MotionEvent
-import android.view.ScaleGestureDetector
-import com.smartdraw.core.BezierCurve
 import com.smartdraw.gles.SmartDrawRenderer
 import com.smartdraw.input.TouchInputHandler
 import javax.microedition.khronos.egl.EGLConfig
@@ -54,6 +52,43 @@ class SmartDrawView @JvmOverloads constructor(
     private var surfaceWidth = 1024
     private var surfaceHeight = 1024
 
+    private var activeStrokeStartColor: Int = Color.BLACK
+
+    data class Viewport(val left: Int, val top: Int, val width: Int, val height: Int) {
+        val right: Int get() = left + width
+        val bottom: Int get() = top + height
+    }
+
+    fun getCanvasViewport(): Viewport {
+        val vw = if (surfaceWidth > 0) surfaceWidth else canvasWidth
+        val vh = if (surfaceHeight > 0) surfaceHeight else canvasHeight
+        val canvasAspect = canvasWidth.toFloat() / canvasHeight.toFloat()
+        val viewAspect = vw.toFloat() / vh.toFloat()
+
+        val vpWidth: Int
+        val vpHeight: Int
+        val vpLeft: Int
+        val vpTop: Int
+
+        if (viewAspect > canvasAspect) {
+            vpHeight = vh
+            vpWidth = (vh * canvasAspect).toInt()
+            vpLeft = (vw - vpWidth) / 2
+            vpTop = 0
+        } else {
+            vpWidth = vw
+            vpHeight = (vw / canvasAspect).toInt()
+            vpLeft = 0
+            vpTop = (vh - vpHeight) / 2
+        }
+
+        return Viewport(vpLeft, vpTop, vpWidth, vpHeight)
+    }
+
+    fun viewToCanvas(touchX: Float, touchY: Float): Pair<Float, Float> {
+        return screenToCanvas(touchX, touchY)
+    }
+
     private var prevFocalX = 0f
     private var prevFocalY = 0f
     private var prevFingerDistance = 0f
@@ -66,16 +101,40 @@ class SmartDrawView @JvmOverloads constructor(
         screenToCanvasTransformer = { sx, sy ->
             screenToCanvas(sx, sy)
         },
+        transformPoint = { sx, sy ->
+            screenToCanvas(sx, sy)
+        },
+        onStrokeStart = { pt ->
+            val preview = if (useReferenceColors) {
+                rendererInstance?.referenceLayer?.sampleColor(
+                    canvasX = pt.x,
+                    canvasY = pt.y,
+                    canvasWidth = canvasWidth.toFloat(),
+                    canvasHeight = canvasHeight.toFloat(),
+                    defaultColor = brushColor
+                ) ?: brushColor
+            } else {
+                brushColor
+            }
+            activeStrokeStartColor = preview
+            queueEvent {
+                val r = rendererInstance ?: return@queueEvent
+                if (toolMode == ToolMode.PENCIL) {
+                    r.beginActiveStroke(preview)
+                }
+                requestRender()
+            }
+        },
         onStrokeSegment = { curve, radius, opacity ->
             queueEvent {
                 val r = rendererInstance ?: return@queueEvent
                 when (toolMode) {
                     ToolMode.PENCIL -> {
-                        r.drawBezierStroke(
+                        r.drawActiveStrokeSegment(
                             curve = curve,
-                            baseRadius = radius,
-                            defaultColor = brushColor,
-                            useReferenceColors = useReferenceColors,
+                            radius = radius,
+                            opacity = opacity,
+                            previewColor = activeStrokeStartColor,
                             spacingRatio = 0.2f
                         )
                     }
@@ -89,6 +148,25 @@ class SmartDrawView @JvmOverloads constructor(
                         )
                     }
                 }
+                requestRender()
+            }
+        },
+        onStrokeEnd = {
+            queueEvent {
+                val r = rendererInstance ?: return@queueEvent
+                if (toolMode == ToolMode.PENCIL) {
+                    r.endActiveStroke(
+                        useReferenceColors = useReferenceColors,
+                        defaultColor = brushColor,
+                        spacingRatio = 0.2f
+                    )
+                }
+                requestRender()
+            }
+        },
+        onStrokeCancel = {
+            queueEvent {
+                rendererInstance?.clearActiveStroke()
                 requestRender()
             }
         }
@@ -132,8 +210,7 @@ class SmartDrawView @JvmOverloads constructor(
     override fun onDrawFrame(gl: GL10?) {
         val r = rendererInstance ?: return
         // Render composite output directly to the default screen framebuffer (0) transformed by viewport MVP
-        r.composite(
-            targetFramebuffer = 0,
+        r.renderToScreen(
             viewportW = surfaceWidth,
             viewportH = surfaceHeight,
             translationX = viewportTranslationX,

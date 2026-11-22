@@ -5,6 +5,9 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.opengl.GLES30
 import android.opengl.GLUtils
+import com.smartdraw.core.Point2D
+import kotlin.math.max
+import kotlin.math.min
 
 class ReferenceLayer {
     var textureId: Int = 0
@@ -16,9 +19,11 @@ class ReferenceLayer {
     var opacity: Float = 0.3f
     var isVisible: Boolean = true
 
-    fun setBitmap(source: Bitmap) {
+    fun setBitmap(source: Bitmap, updateGlTexture: Boolean = true) {
         bitmap = source
-        updateTexture()
+        if (updateGlTexture) {
+            updateTexture()
+        }
     }
 
     fun updateTexture() {
@@ -60,7 +65,7 @@ class ReferenceLayer {
         val rh = b.height.toFloat()
         if (rw <= 0f || rh <= 0f || canvasWidth <= 0f || canvasHeight <= 0f) return defaultColor
 
-        // Letterbox / aspect-fit mapping from canvas to reference bitmap
+        // Letterbox / aspect-fit mapping from canvas to reference bitmap (SPECIFICATION.md §4.3.3)
         val scale = minOf(canvasWidth / rw, canvasHeight / rh)
         val drawnW = rw * scale
         val drawnH = rh * scale
@@ -90,6 +95,81 @@ class ReferenceLayer {
         val g = Color.green(color) / 255.0f
         val b = Color.blue(color) / 255.0f
         return floatArrayOf(r, g, b, a)
+    }
+
+    fun computeAverageCoveredColor(
+        points: List<Point2D>,
+        radii: List<Float>,
+        canvasWidth: Float = 1024f,
+        canvasHeight: Float = 1024f,
+        defaultColor: Int = Color.BLACK
+    ): Int {
+        val b = bitmap ?: return defaultColor
+        val rw = b.width.toFloat()
+        val rh = b.height.toFloat()
+        if (rw <= 0f || rh <= 0f || canvasWidth <= 0f || canvasHeight <= 0f || points.isEmpty()) return defaultColor
+
+        val scale = minOf(canvasWidth / rw, canvasHeight / rh)
+        val drawnW = rw * scale
+        val drawnH = rh * scale
+        val offsetX = (canvasWidth - drawnW) * 0.5f
+        val offsetY = (canvasHeight - drawnH) * 0.5f
+
+        var totalR = 0L
+        var totalG = 0L
+        var totalB = 0L
+        var count = 0L
+        val visited = HashSet<Long>()
+
+        val w = b.width
+        val h = b.height
+
+        for (i in points.indices) {
+            val pt = points[i]
+            val r = if (i < radii.size) radii[i] else (radii.lastOrNull() ?: 20f)
+
+            // Convert center and radius from canvas space to image space
+            val imgCenterX = (pt.x - offsetX) / scale
+            val imgCenterY = (pt.y - offsetY) / scale
+            val imgRadius = r / scale
+
+            val minX = max(0, (imgCenterX - imgRadius).toInt())
+            val maxX = min(w - 1, (imgCenterX + imgRadius).toInt())
+            val minY = max(0, (imgCenterY - imgRadius).toInt())
+            val maxY = min(h - 1, (imgCenterY + imgRadius).toInt())
+
+            val step = max(1, (imgRadius / 6f).toInt())
+            var py = minY
+            while (py <= maxY) {
+                var px = minX
+                while (px <= maxX) {
+                    val dx = px - imgCenterX
+                    val dy = py - imgCenterY
+                    if (dx * dx + dy * dy <= imgRadius * imgRadius) {
+                        val key = (px.toLong() shl 32) or (py.toLong() and 0xFFFFFFFFL)
+                        if (visited.add(key)) {
+                            val pixel = b.getPixel(px, py)
+                            totalR += Color.red(pixel)
+                            totalG += Color.green(pixel)
+                            totalB += Color.blue(pixel)
+                            count++
+                        }
+                    }
+                    px += step
+                }
+                py += step
+            }
+        }
+
+        if (count == 0L) {
+            val first = points.first()
+            return sampleColor(first.x, first.y, canvasWidth, canvasHeight, defaultColor)
+        }
+
+        val avgR = (totalR / count).toInt().coerceIn(0, 255)
+        val avgG = (totalG / count).toInt().coerceIn(0, 255)
+        val avgB = (totalB / count).toInt().coerceIn(0, 255)
+        return Color.rgb(avgR, avgG, avgB)
     }
 
     fun release() {

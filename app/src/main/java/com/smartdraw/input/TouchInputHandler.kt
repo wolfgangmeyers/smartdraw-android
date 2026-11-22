@@ -12,8 +12,11 @@ class TouchInputHandler(
     var pressureGamma: Float = 1.0f,
     var minPressureFactor: Float = 0.1f,
     var screenToCanvasTransformer: ((Float, Float) -> Pair<Float, Float>)? = null,
+    var transformPoint: ((Float, Float) -> Pair<Float, Float>)? = null,
+    private val onStrokeStart: ((Point2D) -> Unit)? = null,
     private val onStrokeSegment: (BezierCurve, Float, Float) -> Unit, // curve, radius, opacity
-    private val onStrokeEnd: (() -> Unit)? = null
+    private val onStrokeEnd: (() -> Unit)? = null,
+    private val onStrokeCancel: (() -> Unit)? = null
 ) {
     // Pointer ID of the active drawing stylus, or null if no stylus is currently down
     var activeStylusPointerId: Int? = null
@@ -25,10 +28,9 @@ class TouchInputHandler(
     private val smoother = StrokeSmoother { curve ->
         // Evaluate dynamic radius and opacity from curve endpoints
         val avgPressure = ((curve.start.pressure + curve.end.pressure) * 0.5f).coerceIn(0.05f, 1.0f)
-        val scaledPressure = minPressureFactor + (1.0f - minPressureFactor) * avgPressure.pow(pressureGamma)
-        val radius = baseRadius * scaledPressure
-        val opacity = (baseOpacity * scaledPressure).coerceIn(0.05f, 1.0f)
-        onStrokeSegment(curve, radius, opacity)
+        val dynamicRadius = baseRadius * avgPressure
+        val dynamicOpacity = baseOpacity * avgPressure
+        onStrokeSegment(curve, dynamicRadius, dynamicOpacity)
     }
 
     fun handleTouchEvent(event: MotionEvent): Boolean {
@@ -40,7 +42,9 @@ class TouchInputHandler(
                     activeStylusPointerId = pointerId
                     val (cx, cy) = transformCoords(event.x, event.y)
                     val p = normalizePressure(event.pressure)
-                    smoother.onPointDown(Point2D(cx, cy, p))
+                    val pt = Point2D(cx, cy, p)
+                    onStrokeStart?.invoke(pt)
+                    smoother.onPointDown(pt)
                     return true
                 } else {
                     // Finger touches or unknown pointer types never draw
@@ -57,7 +61,9 @@ class TouchInputHandler(
                     activeStylusPointerId = pointerId
                     val (cx, cy) = transformCoords(event.getX(actionIndex), event.getY(actionIndex))
                     val p = normalizePressure(event.getPressure(actionIndex))
-                    smoother.onPointDown(Point2D(cx, cy, p))
+                    val pt = Point2D(cx, cy, p)
+                    onStrokeStart?.invoke(pt)
+                    smoother.onPointDown(pt)
                     return true
                 }
                 return activeStylusPointerId != null
@@ -122,7 +128,7 @@ class TouchInputHandler(
                 if (activeStylusPointerId != null) {
                     smoother.reset()
                     activeStylusPointerId = null
-                    onStrokeEnd?.invoke()
+                    onStrokeCancel?.invoke() ?: onStrokeEnd?.invoke()
                     return true
                 }
                 return false
@@ -135,7 +141,7 @@ class TouchInputHandler(
         if (activeStylusPointerId != null) {
             smoother.reset()
             activeStylusPointerId = null
-            onStrokeEnd?.invoke()
+            onStrokeCancel?.invoke() ?: onStrokeEnd?.invoke()
         }
     }
 
@@ -144,13 +150,15 @@ class TouchInputHandler(
     }
 
     private fun transformCoords(screenX: Float, screenY: Float): Pair<Float, Float> {
-        val transformer = screenToCanvasTransformer ?: return Pair(screenX, screenY)
+        val transformer = screenToCanvasTransformer ?: transformPoint ?: return Pair(screenX, screenY)
         return transformer(screenX, screenY)
     }
 
     private fun normalizePressure(raw: Float): Float {
         // Some devices report 0 for touch if pressure is uncalibrated or default 1.0
         if (raw <= 0.001f) return 0.5f
-        return raw.coerceIn(0.05f, 1.0f)
+        val clamped = raw.coerceIn(0.0f, 1.0f)
+        val shaped = clamped.pow(pressureGamma)
+        return minPressureFactor + (1.0f - minPressureFactor) * shaped
     }
 }

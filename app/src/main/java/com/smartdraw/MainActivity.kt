@@ -2,7 +2,9 @@ package com.smartdraw
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.util.Log
@@ -30,11 +32,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnSmudge: Button
     private lateinit var btnLoadImage: Button
     private lateinit var btnAutoColor: Button
-    private lateinit var btnClear: Button
+    private lateinit var btnRefOpacity: Button
+    private lateinit var btnClearCanvas: Button
     private lateinit var btnResetView: Button
     private lateinit var btnRunHarness: Button
     private lateinit var statusText: TextView
     private lateinit var progressBar: ProgressBar
+
+    private val opacities = floatArrayOf(0.15f, 0.3f, 0.5f, 0.8f, 1.0f, 0.0f)
+    private var opacityIndex = 1 // 0.3f default
 
     private lateinit var pickImageLauncher: ActivityResultLauncher<String>
 
@@ -52,7 +58,8 @@ class MainActivity : AppCompatActivity() {
         btnSmudge = findViewById(R.id.btnSmudge)
         btnLoadImage = findViewById(R.id.btnLoadImage)
         btnAutoColor = findViewById(R.id.btnAutoColor)
-        btnClear = findViewById(R.id.btnClear)
+        btnRefOpacity = findViewById(R.id.btnRefOpacity)
+        btnClearCanvas = findViewById(R.id.btnClearCanvas)
         btnResetView = findViewById(R.id.btnResetView)
         btnRunHarness = findViewById(R.id.btnRunHarness)
         statusText = findViewById(R.id.statusText)
@@ -61,14 +68,22 @@ class MainActivity : AppCompatActivity() {
         // ActivityResultLauncher for selecting source/reference image from gallery or storage
         pickImageLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
             if (uri != null) {
-                loadSelectedImage(uri)
+                loadImageFromUri(uri)
             }
         }
 
-        // Default reference image
+        // Default: Auto Color is ON for SmartDraw
+        drawView.useReferenceColors = true
+        updateAutoColorButton()
+
+        // Load default reference image to start
         val refBitmap = ReferenceImageGenerator.createRadialGradient(1024, 1024)
         drawView.setReferenceImage(refBitmap)
-        drawView.setReferenceOpacity(0.35f)
+        drawView.setReferenceOpacity(opacities[opacityIndex])
+
+        btnLoadImage.setOnClickListener {
+            pickImageLauncher.launch("image/*")
+        }
 
         btnPencil.setOnClickListener {
             drawView.toolMode = SmartDrawView.ToolMode.PENCIL
@@ -80,17 +95,23 @@ class MainActivity : AppCompatActivity() {
             statusText.text = "Tool: Smudge"
         }
 
-        btnLoadImage.setOnClickListener {
-            pickImageLauncher.launch("image/*")
-        }
-
         btnAutoColor.setOnClickListener {
             drawView.useReferenceColors = !drawView.useReferenceColors
             updateAutoColorButton()
             statusText.text = if (drawView.useReferenceColors) "Auto color sampling enabled" else "Manual color mode"
         }
 
-        btnClear.setOnClickListener {
+        btnRefOpacity.setOnClickListener {
+            opacityIndex = (opacityIndex + 1) % opacities.size
+            val opacity = opacities[opacityIndex]
+            drawView.setReferenceOpacity(opacity)
+            drawView.setReferenceVisible(opacity > 0.001f)
+            val pct = (opacity * 100).toInt()
+            btnRefOpacity.text = if (opacity <= 0.001f) "Ref: OFF" else "Ref: $pct%"
+            statusText.text = "Reference opacity: $pct%"
+        }
+
+        btnClearCanvas.setOnClickListener {
             drawView.clearCanvas()
             statusText.text = "Canvas cleared"
         }
@@ -113,77 +134,60 @@ class MainActivity : AppCompatActivity() {
         btnAutoColor.text = if (drawView.useReferenceColors) "Auto Color: ON" else "Auto Color: OFF"
     }
 
-    private fun loadSelectedImage(uri: Uri) {
+    private fun loadImageFromUri(uri: Uri) {
+        statusText.text = "Loading image..."
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val bitmap = decodeSampledBitmapFromUri(uri, MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION)
-                if (bitmap != null) {
-                    withContext(Dispatchers.Main) {
-                        drawView.setReferenceImage(bitmap)
-                        drawView.setReferenceOpacity(0.35f)
-                        drawView.useReferenceColors = true
-                        updateAutoColorButton()
-
-                        val msg = "Loaded image (${bitmap.width}x${bitmap.height}) for Auto Color"
-                        statusText.text = msg
-                        Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+                val loadedBitmap: Bitmap? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    val source = ImageDecoder.createSource(contentResolver, uri)
+                    ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                        decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                        decoder.isMutableRequired = true
                     }
                 } else {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "Failed to decode selected image", Toast.LENGTH_SHORT).show()
+                    contentResolver.openInputStream(uri)?.use { stream ->
+                        BitmapFactory.decodeStream(stream)
                     }
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error loading image from URI: $uri", e)
+
+                if (loadedBitmap == null) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@MainActivity, "Failed to load image", Toast.LENGTH_SHORT).show()
+                        statusText.text = "Failed to load image"
+                    }
+                    return@launch
+                }
+
+                // Scale to max 2048x2048 preserving aspect ratio for mobile GPU memory
+                val maxDim = MAX_IMAGE_DIMENSION
+                val maxSide = max(loadedBitmap.width, loadedBitmap.height)
+                val finalBitmap = if (maxSide > maxDim) {
+                    val scale = maxDim.toFloat() / maxSide
+                    val w = (loadedBitmap.width * scale).toInt()
+                    val h = (loadedBitmap.height * scale).toInt()
+                    Bitmap.createScaledBitmap(loadedBitmap, w, h, true)
+                } else {
+                    loadedBitmap
+                }
+
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MainActivity, "Error loading image: ${e.message}", Toast.LENGTH_SHORT).show()
+                    drawView.setReferenceImage(finalBitmap)
+                    drawView.clearCanvas() // Fresh canvas for new reference photo
+                    drawView.useReferenceColors = true
+                    updateAutoColorButton()
+
+                    val msg = "Loaded image (${finalBitmap.width}x${finalBitmap.height}) for Auto Color"
+                    statusText.text = msg
+                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading image", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    statusText.text = "Error loading image"
                 }
             }
         }
-    }
-
-    private fun decodeSampledBitmapFromUri(uri: Uri, maxWidth: Int, maxHeight: Int): Bitmap? {
-        val options = BitmapFactory.Options().apply {
-            inJustDecodeBounds = true
-        }
-        contentResolver.openInputStream(uri)?.use { inputStream ->
-            BitmapFactory.decodeStream(inputStream, null, options)
-        }
-
-        val origW = options.outWidth
-        val origH = options.outHeight
-        if (origW <= 0 || origH <= 0) return null
-
-        var inSampleSize = 1
-        val maxDim = max(origW, origH)
-        val targetMax = max(maxWidth, maxHeight)
-        while ((maxDim / inSampleSize) > targetMax) {
-            inSampleSize *= 2
-        }
-
-        val decodeOptions = BitmapFactory.Options().apply {
-            this.inSampleSize = inSampleSize
-            inPreferredConfig = Bitmap.Config.ARGB_8888
-        }
-
-        val decoded = contentResolver.openInputStream(uri)?.use { inputStream ->
-            BitmapFactory.decodeStream(inputStream, null, decodeOptions)
-        } ?: return null
-
-        // Downscale precisely if still larger than target max dimension
-        val currentMax = max(decoded.width, decoded.height)
-        if (currentMax > targetMax) {
-            val scale = targetMax.toFloat() / currentMax.toFloat()
-            val newW = (decoded.width * scale).toInt()
-            val newH = (decoded.height * scale).toInt()
-            val scaled = Bitmap.createScaledBitmap(decoded, newW, newH, true)
-            if (scaled != decoded) {
-                decoded.recycle()
-            }
-            return scaled
-        }
-
-        return decoded
     }
 
     private fun setButtonsEnabled(enabled: Boolean) {
@@ -191,7 +195,8 @@ class MainActivity : AppCompatActivity() {
         btnSmudge.isEnabled = enabled
         btnLoadImage.isEnabled = enabled
         btnAutoColor.isEnabled = enabled
-        btnClear.isEnabled = enabled
+        btnRefOpacity.isEnabled = enabled
+        btnClearCanvas.isEnabled = enabled
         btnResetView.isEnabled = enabled
         btnRunHarness.isEnabled = enabled
     }
