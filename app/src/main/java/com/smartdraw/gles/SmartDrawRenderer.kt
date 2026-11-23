@@ -586,6 +586,25 @@ class SmartDrawRenderer(
 
     fun exportBaseBitmap(): Bitmap = baseFbo.readBitmap()
 
+    fun sampleCanvasColor(canvasX: Float, canvasY: Float): Int {
+        if (width <= 0 || height <= 0) return Color.BLACK
+        val x = canvasX.toInt().coerceIn(0, width - 1)
+        val y = canvasY.toInt().coerceIn(0, height - 1)
+        val glY = (height - 1 - y).coerceIn(0, height - 1)
+
+        baseFbo.bind()
+        val buffer = java.nio.ByteBuffer.allocateDirect(4).order(java.nio.ByteOrder.nativeOrder())
+        GLES30.glReadPixels(x, glY, 1, 1, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, buffer)
+        baseFbo.unbind()
+
+        buffer.rewind()
+        val r = buffer.get().toInt() and 0xFF
+        val g = buffer.get().toInt() and 0xFF
+        val b = buffer.get().toInt() and 0xFF
+        val a = buffer.get().toInt() and 0xFF
+        return (a shl 24) or (r shl 16) or (g shl 8) or b
+    }
+
     fun exportCompositeBitmap(): Bitmap {
         composite(
             targetFramebuffer = compositeFbo.framebufferId,

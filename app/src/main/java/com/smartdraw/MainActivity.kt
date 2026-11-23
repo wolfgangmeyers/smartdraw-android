@@ -99,6 +99,7 @@ class MainActivity : AppCompatActivity(),
                     p.activeTool = if (drawView.toolMode == SmartDrawView.ToolMode.PENCIL) "PENCIL" else "SMUDGE"
                     p.brushSize = drawView.getBrushSize()
                     p.brushOpacity = drawView.brushOpacity
+                    p.manualBrushColor = drawView.brushColor
                     return p
                 }
 
@@ -114,6 +115,23 @@ class MainActivity : AppCompatActivity(),
 
         drawView.onStrokeCompleted = {
             autoSaveManager.markDirty()
+        }
+
+        drawView.onBrushColorChanged = { color ->
+            currentProject?.manualBrushColor = color
+            autoSaveManager.markDirty()
+        }
+
+        drawView.onColorSampled = { sampledColor ->
+            drawView.brushColor = sampledColor
+            currentProject?.manualBrushColor = sampledColor
+            drawView.useReferenceColors = false
+            currentProject?.useReferenceColors = false
+            updateAutoColorUI()
+            autoSaveManager.markDirty()
+            val hex = String.format("#%06X", 0xFFFFFF and sampledColor)
+            statusText.text = "Sampled color: $hex (Manual color mode)"
+            Toast.makeText(this@MainActivity, "Picked color: $hex", Toast.LENGTH_SHORT).show()
         }
 
         // ActivityResultLauncher for selecting source/reference image from gallery or storage
@@ -211,6 +229,8 @@ class MainActivity : AppCompatActivity(),
                     drawView.setReferenceVisible(isSourceVisible)
 
                     // Tool & Brush Settings
+                    drawView.currentProject = project
+                    drawView.brushColor = project.manualBrushColor
                     drawView.useReferenceColors = project.useReferenceColors
                     drawView.setRatchetEnabled(project.isRatchetEnabled)
                     drawView.toolMode = if (project.activeTool == "SMUDGE") SmartDrawView.ToolMode.SMUDGE else SmartDrawView.ToolMode.PENCIL
@@ -314,9 +334,13 @@ class MainActivity : AppCompatActivity(),
         val sheet = ToolSettingsBottomSheet.newInstance(
             toolMode = drawView.toolMode,
             brushRadius = drawView.getBrushSize(),
-            brushOpacity = drawView.brushOpacity
-        )
-        sheet.listener = this
+            brushOpacity = drawView.brushOpacity,
+            brushColor = drawView.brushColor,
+            useReferenceColors = drawView.useReferenceColors
+        ).apply {
+            this.drawView = this@MainActivity.drawView
+            this.listener = this@MainActivity
+        }
         sheet.show(supportFragmentManager, ToolSettingsBottomSheet.TAG)
     }
 
@@ -355,6 +379,28 @@ class MainActivity : AppCompatActivity(),
         currentProject?.brushOpacity = opacity
         autoSaveManager.markDirty()
         statusText.text = "Brush opacity: ${(opacity * 100f).roundToInt()}%"
+    }
+
+    override fun onBrushColorChanged(color: Int) {
+        drawView.brushColor = color
+        currentProject?.manualBrushColor = color
+        autoSaveManager.markDirty()
+        val hex = String.format("#%06X", 0xFFFFFF and color)
+        statusText.text = "Brush color: $hex"
+    }
+
+    override fun onEyedropperRequested() {
+        drawView.isEyedropperActive = true
+        statusText.text = "Eyedropper active: Tap on canvas to sample color"
+        Toast.makeText(this, "Tap or drag on canvas to pick a color", Toast.LENGTH_SHORT).show()
+    }
+
+    override fun onAutoColorToggled(enabled: Boolean) {
+        drawView.useReferenceColors = enabled
+        currentProject?.useReferenceColors = enabled
+        autoSaveManager.markDirty()
+        updateAutoColorUI()
+        statusText.text = if (enabled) "Auto color sampling enabled" else "Manual color mode"
     }
 
     override fun onChangeSourceImageClicked() {

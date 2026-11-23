@@ -1,5 +1,7 @@
 package com.smartdraw.project
 
+import android.graphics.Color
+
 data class PaintingProject(
     val id: String,
     var title: String = "Untitled Painting",
@@ -13,5 +15,6 @@ data class PaintingProject(
     var isRatchetEnabled: Boolean = false,
     var activeTool: String = "PENCIL",
     var brushSize: Float = 20.0f,
-    var brushOpacity: Float = 1.0f
+    var brushOpacity: Float = 1.0f,
+    var manualBrushColor: Int = Color.BLACK
 )

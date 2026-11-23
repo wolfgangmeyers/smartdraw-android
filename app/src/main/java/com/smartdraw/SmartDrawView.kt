@@ -25,7 +25,19 @@ class SmartDrawView @JvmOverloads constructor(
     }
 
     var toolMode: ToolMode = ToolMode.PENCIL
+
+    var currentProject: com.smartdraw.project.PaintingProject? = null
+    var onBrushColorChanged: ((Int) -> Unit)? = null
+    var onColorSampled: ((Int) -> Unit)? = null
+    var isEyedropperActive: Boolean = false
+
     var brushColor: Int = Color.BLACK
+        get() = currentProject?.manualBrushColor ?: field
+        set(value) {
+            field = value
+            currentProject?.manualBrushColor = value
+            onBrushColorChanged?.invoke(value)
+        }
     var useReferenceColors: Boolean = false
     var isRatchetEnabled: Boolean = false
         get() = field
@@ -448,7 +460,47 @@ class SmartDrawView @JvmOverloads constructor(
         }
     }
 
+    fun sampleCanvasColor(canvasX: Float, canvasY: Float): Int {
+        val r = rendererInstance ?: return brushColor
+        var result = brushColor
+        val latch = java.util.concurrent.CountDownLatch(1)
+        queueEvent {
+            try {
+                result = r.sampleCanvasColor(canvasX, canvasY)
+            } finally {
+                latch.countDown()
+            }
+        }
+        try {
+            latch.await(200, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+        return result
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (isEyedropperActive) {
+            val (cx, cy) = screenToCanvas(event.x, event.y)
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                    val sampled = sampleCanvasColor(cx, cy)
+                    brushColor = sampled
+                    onColorSampled?.invoke(sampled)
+                }
+                MotionEvent.ACTION_UP -> {
+                    val sampled = sampleCanvasColor(cx, cy)
+                    brushColor = sampled
+                    isEyedropperActive = false
+                    onColorSampled?.invoke(sampled)
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    isEyedropperActive = false
+                }
+            }
+            return true
+        }
+
         touchHandler.baseRadius = brushRadius
         touchHandler.baseOpacity = brushOpacity
 

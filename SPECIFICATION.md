@@ -292,6 +292,19 @@ When `useReferenceColors` is enabled, the auto-picker (`ReferenceColorSampler.kt
    $$x_r = \frac{x_c - \text{offset}_x}{\text{scale}_{\text{ref}}}, \quad y_r = \frac{y_c - \text{offset}_y}{\text{scale}_{\text{ref}}}$$
 3. Because sampling operates in Canvas Space, zooming, rotating, or panning the viewport never shifts or misaligns the sampled reference colors relative to the canvas content.
 
+#### 4.3.3.1 Manual Color Mode & Canvas Eyedropper
+
+When Auto Color (`useReferenceColors`) is disabled, the brush uses `manualBrushColor`:
+1. **Manual Color Application**:
+   - The brush color is fixed to `SmartDrawView.brushColor` (`currentProject.manualBrushColor`).
+   - Stamps drawn during active strokes are rendered with the manual color and modulated by dynamic stylus pressure and stroke opacity.
+2. **Canvas Eyedropper Sampling**:
+   - When eyedropper mode is activated (`isEyedropperActive = true`), touch and stylus gestures are diverted from painting strokes to canvas color sampling.
+   - Coordinate inversion: Touch screen coordinates $(x_s, y_s)$ are inverted to Canvas Space $(x_c, y_c)$ via `screenToCanvas()`.
+   - GPU Pixel Read: Executed on the GL render thread via `sampleCanvasColor()`. Binds `baseFbo`, queries $1 \times 1$ pixel at clamped integer coordinates $(x_c, y_c)$ via `GLES30.glReadPixels(x, glY, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, buffer)`, and packs into an ARGB `Int`.
+   - Real-Time Feedback: On `ACTION_DOWN` and `ACTION_MOVE`, the sampled color updates immediately in real time. On `ACTION_UP`, the sampled color is committed to `manualBrushColor`, Auto Color is disabled, eyedropper mode deactivates (`isEyedropperActive = false`), and feedback is displayed in the status bar and Toast.
+   - Persistence: The selected color is committed to `PaintingProject.manualBrushColor` and saved via the auto-save engine.
+
 #### 4.3.4 Viewport MVP Matrix in GLES Compositing Pass
 
 The Drawing FBO texture remains unscaled, unrotated, and unpanned in texture memory ($W_{\text{canvas}} \times H_{\text{canvas}}$). During the final composite pass to the display `SurfaceView` (`GL_FRAMEBUFFER 0`):
@@ -541,7 +554,8 @@ filesDir/
        "isRatchetEnabled": false,
        "activeTool": "PENCIL",
        "brushSize": 24.0,
-       "brushOpacity": 0.85
+       "brushOpacity": 0.85,
+       "manualBrushColor": -16777216
      }
      ```
    - Field semantics:
@@ -556,6 +570,7 @@ filesDir/
      - `activeTool` (`String`): Identifier for the active tool (`PENCIL`, `SMUDGE`, `ERASER`).
      - `brushSize` (`Float`): Canvas-space radius / diameter for brush stamping.
      - `brushOpacity` (`Float`): Stroke opacity factor $\in [0.0, 1.0]$.
+     - `manualBrushColor` (`Int`): ARGB 32-bit integer color value for manual brush strokes when Auto Color is disabled; defaults to `#FF000000` (opaque black). Backwards compatible with existing project JSONs missing this field.
 5. **`active_project.json`**:
    - Located in the root `projects/` directory, acting as an atomic pointer to the current document:
      ```json
@@ -962,6 +977,21 @@ Activated by tapping the active tool icon in the toolbar, this bottom sheet prov
    - Granular slider spanning $2\text{ px}$ to $100\text{ px}$ with integer readout (e.g., `24 px`).
 4. **Brush Opacity Slider**:
    - Continuous slider spanning $1\%$ to $100\%$ with percentage readout (e.g., `85%`).
+5. **Manual Color Selection Section**:
+   - **Auto Color Context Banner**: When Auto Color is enabled, displays an explanatory notice ("Auto Color is currently enabled...") and a "Switch to Manual Color" button that seamlessly disables Auto Color and exposes the color picker controls.
+   - **Live Swatch & Hex Readout**: Displays an antialiased circular color swatch preview with a crisp border alongside the formatted uppercase hex code (`#RRGGBB`).
+   - **Color Mode Switcher**: Segmented toggle buttons switching between **RGB** and **HSL** slider sets.
+   - **RGB Sliders**:
+     - Red ($0$ to $255$, styled in red `#FF5252`).
+     - Green ($0$ to $255$, styled in green `#4CAF50`).
+     - Blue ($0$ to $255$, styled in blue `#2979FF`).
+   - **HSL Sliders**:
+     - Hue ($0^\circ$ to $360^\circ$, styled in orange `#FF9800`).
+     - Saturation ($0\%$ to $100\%$, styled in pink `#E91E63`).
+     - Lightness ($0\%$ to $100\%$, styled in purple `#9C27B0`).
+   - **Bidirectional Model Synchronization**: Adjusting RGB sliders automatically computes and updates HSL sliders via `ColorUtils.colorToHSL`, and adjusting HSL sliders computes and updates RGB sliders via `ColorUtils.HSLToColor`.
+   - **Canvas Eyedropper Button**: Dedicated button styled with `ic_eyedropper`. Tapping dismisses the bottom sheet, activates `drawView.isEyedropperActive = true`, and presents guidance feedback to sample any color directly from the canvas.
+   - **Live Brush Preview Integration**: `BrushPreviewView` renders the current manual brush color with stroke opacity (or white when Auto Color is active), ensuring direct visual confirmation before painting.
 
 ---
 
@@ -1047,6 +1077,9 @@ Positioned immediately beneath the top toolbar (background `#181818`, height $32
 | **Tool Card (Pencil/Smudge)** | Click | `onToolSelected(toolMode)` | Updates active tool, top toolbar icon, marks dirty |
 | **Brush Size Slider** | Drag | `onBrushSizeChanged(radius)` | Updates `baseRadius`, brush preview ring, marks dirty |
 | **Brush Opacity Slider** | Drag | `onBrushOpacityChanged(opacity)` | Updates `baseOpacity`, brush preview ring, marks dirty |
+| **RGB / HSL Sliders** | Drag | `onBrushColorChanged(color)` | Updates `drawView.brushColor`, live swatch, preview, marks dirty |
+| **Eyedropper Button** | Click | `onEyedropperRequested()` | Dismisses sheet, sets `isEyedropperActive = true`, shows guidance |
+| **Canvas Eyedropper** | Touch / Drag | `sampleCanvasColor(cx, cy)` | Samples `baseFbo` pixel, updates color live, commits on release |
 | **`btnAutoColor`** | Click | Toggle `drawView.useReferenceColors` | Updates button highlight, auto-picker mode, marks dirty |
 | **`btnResetView`** | Click | `drawView.resetView()` | Viewport scale $\to S_{\text{fit}}$, rotation $\to 0^\circ$, centered |
 | **`btnGallery`** | Click | `openGallery()` | Flushes auto-save, opens `GalleryDialogFragment` |
