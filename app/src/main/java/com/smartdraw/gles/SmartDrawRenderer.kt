@@ -306,12 +306,8 @@ class SmartDrawRenderer(
         activeStrokeRadii.clear()
         activeStrokeSegments.clear()
 
-        val r = Color.red(previewColor) / 255f
-        val g = Color.green(previewColor) / 255f
-        val b = Color.blue(previewColor) / 255f
-
         activeStrokeFbo.bind()
-        GLES30.glClearColor(r, g, b, 0.0f)
+        GLES30.glClearColor(0.0f, 0.0f, 0.0f, 0.0f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         activeStrokeFbo.unbind()
 

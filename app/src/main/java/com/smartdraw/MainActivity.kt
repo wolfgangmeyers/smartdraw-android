@@ -115,6 +115,12 @@ class MainActivity : AppCompatActivity(),
                     }
                     p.brushSize = drawView.getBrushSize()
                     p.brushOpacity = drawView.brushOpacity
+                    p.brushSizeBrush = drawView.getToolRadius(SmartDrawView.ToolMode.PAINTBRUSH)
+                    p.brushSizePen = drawView.getToolRadius(SmartDrawView.ToolMode.PEN)
+                    p.brushSizeSmudge = drawView.getToolRadius(SmartDrawView.ToolMode.SMUDGE)
+                    p.brushOpacityBrush = drawView.getToolOpacity(SmartDrawView.ToolMode.PAINTBRUSH)
+                    p.brushOpacityPen = drawView.getToolOpacity(SmartDrawView.ToolMode.PEN)
+                    p.brushOpacitySmudge = drawView.getToolOpacity(SmartDrawView.ToolMode.SMUDGE)
                     p.manualBrushColor = drawView.brushColor
                     p.layers = drawView.getLayers()
                     p.activeLayerId = drawView.getActiveLayerId()
@@ -281,13 +287,19 @@ class MainActivity : AppCompatActivity(),
                     drawView.brushColor = project.manualBrushColor
                     drawView.useReferenceColors = project.useReferenceColors
                     drawView.setRatchetEnabled(project.isRatchetEnabled)
+
+                    drawView.setToolRadius(SmartDrawView.ToolMode.PAINTBRUSH, project.brushSizeBrush)
+                    drawView.setToolRadius(SmartDrawView.ToolMode.PEN, project.brushSizePen)
+                    drawView.setToolRadius(SmartDrawView.ToolMode.SMUDGE, project.brushSizeSmudge)
+                    drawView.setToolOpacity(SmartDrawView.ToolMode.PAINTBRUSH, project.brushOpacityBrush)
+                    drawView.setToolOpacity(SmartDrawView.ToolMode.PEN, project.brushOpacityPen)
+                    drawView.setToolOpacity(SmartDrawView.ToolMode.SMUDGE, project.brushOpacitySmudge)
+
                     drawView.toolMode = when (project.activeTool) {
                         "SMUDGE" -> SmartDrawView.ToolMode.SMUDGE
                         "PEN" -> SmartDrawView.ToolMode.PEN
                         else -> SmartDrawView.ToolMode.PAINTBRUSH
                     }
-                    drawView.setBrushSize(project.brushSize)
-                    drawView.brushOpacity = project.brushOpacity
 
                     updateActiveToolUI()
                     updateColorUI()
@@ -436,6 +448,8 @@ class MainActivity : AppCompatActivity(),
             SmartDrawView.ToolMode.PEN -> "PEN"
             SmartDrawView.ToolMode.SMUDGE -> "SMUDGE"
         }
+        currentProject?.brushSize = drawView.getBrushSize()
+        currentProject?.brushOpacity = drawView.brushOpacity
         autoSaveManager.markDirty()
         updateActiveToolUI()
         statusText.text = formatToolStatus(toolMode, drawView.getBrushSize())
@@ -443,6 +457,11 @@ class MainActivity : AppCompatActivity(),
 
     override fun onBrushSizeChanged(radius: Float) {
         drawView.setBrushSize(radius)
+        when (drawView.toolMode) {
+            SmartDrawView.ToolMode.PAINTBRUSH -> currentProject?.brushSizeBrush = radius
+            SmartDrawView.ToolMode.PEN -> currentProject?.brushSizePen = radius
+            SmartDrawView.ToolMode.SMUDGE -> currentProject?.brushSizeSmudge = radius
+        }
         currentProject?.brushSize = radius
         autoSaveManager.markDirty()
         statusText.text = formatToolStatus(drawView.toolMode, radius)
@@ -450,9 +469,22 @@ class MainActivity : AppCompatActivity(),
 
     override fun onBrushOpacityChanged(opacity: Float) {
         drawView.brushOpacity = opacity
+        when (drawView.toolMode) {
+            SmartDrawView.ToolMode.PAINTBRUSH -> currentProject?.brushOpacityBrush = opacity
+            SmartDrawView.ToolMode.PEN -> currentProject?.brushOpacityPen = opacity
+            SmartDrawView.ToolMode.SMUDGE -> currentProject?.brushOpacitySmudge = opacity
+        }
         currentProject?.brushOpacity = opacity
         autoSaveManager.markDirty()
         statusText.text = "Brush opacity: ${(opacity * 100f).roundToInt()}%"
+    }
+
+    override fun getToolRadius(toolMode: SmartDrawView.ToolMode): Float {
+        return drawView.getToolRadius(toolMode)
+    }
+
+    override fun getToolOpacity(toolMode: SmartDrawView.ToolMode): Float {
+        return drawView.getToolOpacity(toolMode)
     }
 
     // --- ColorSettingsBottomSheet.Listener Implementation ---

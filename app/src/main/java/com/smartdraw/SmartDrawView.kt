@@ -28,12 +28,29 @@ class SmartDrawView @JvmOverloads constructor(
         SMUDGE
     }
 
+    val toolRadii = mutableMapOf<ToolMode, Float>(
+        ToolMode.PAINTBRUSH to 20.0f,
+        ToolMode.PEN to 1.0f,
+        ToolMode.SMUDGE to 30.0f
+    )
+    val toolOpacities = mutableMapOf<ToolMode, Float>(
+        ToolMode.PAINTBRUSH to 1.0f,
+        ToolMode.PEN to 1.0f,
+        ToolMode.SMUDGE to 0.5f
+    )
+
     var toolMode: ToolMode = ToolMode.PAINTBRUSH
         set(value) {
             field = value
+            val r = toolRadii[value] ?: 20.0f
+            val o = toolOpacities[value] ?: 1.0f
             if (::touchHandler.isInitialized) {
                 touchHandler.toolMode = value
+                touchHandler.baseRadius = r
+                touchHandler.baseOpacity = o
             }
+            brushRadius = r
+            brushOpacity = o
         }
 
     var onBrushColorChanged: ((Int) -> Unit)? = null
@@ -62,6 +79,7 @@ class SmartDrawView @JvmOverloads constructor(
         set(value) {
             val clamped = value.coerceIn(0.5f, 100.0f)
             field = clamped
+            toolRadii[toolMode] = clamped
             if (::touchHandler.isInitialized) {
                 touchHandler.baseRadius = clamped
             }
@@ -69,9 +87,11 @@ class SmartDrawView @JvmOverloads constructor(
     var brushOpacity: Float = 1.0f
         get() = if (::touchHandler.isInitialized) touchHandler.baseOpacity else field
         set(value) {
-            field = value
+            val clamped = value.coerceIn(0.01f, 1.0f)
+            field = clamped
+            toolOpacities[toolMode] = clamped
             if (::touchHandler.isInitialized) {
-                touchHandler.baseOpacity = value
+                touchHandler.baseOpacity = clamped
             }
         }
 
@@ -430,20 +450,36 @@ class SmartDrawView @JvmOverloads constructor(
     }
 
     fun setBrushSize(radius: Float) {
+        brushRadius = radius
+    }
+
+    fun getBrushSize(): Float = brushRadius
+
+    fun setBrushOpacityValue(opacity: Float) {
+        brushOpacity = opacity
+    }
+
+    fun getBrushOpacityValue(): Float = brushOpacity
+
+    fun getToolRadius(mode: ToolMode): Float = toolRadii[mode] ?: 20.0f
+
+    fun setToolRadius(mode: ToolMode, radius: Float) {
         val clamped = radius.coerceIn(0.5f, 100.0f)
-        brushRadius = clamped
-        if (::touchHandler.isInitialized) {
-            touchHandler.baseRadius = clamped
+        toolRadii[mode] = clamped
+        if (toolMode == mode) {
+            brushRadius = clamped
         }
     }
 
-    fun getBrushSize(): Float = if (::touchHandler.isInitialized) touchHandler.baseRadius else brushRadius
+    fun getToolOpacity(mode: ToolMode): Float = toolOpacities[mode] ?: 1.0f
 
-    fun setBrushOpacityValue(opacity: Float) {
-        touchHandler.baseOpacity = opacity
+    fun setToolOpacity(mode: ToolMode, opacity: Float) {
+        val clamped = opacity.coerceIn(0.01f, 1.0f)
+        toolOpacities[mode] = clamped
+        if (toolMode == mode) {
+            brushOpacity = clamped
+        }
     }
-
-    fun getBrushOpacityValue(): Float = touchHandler.baseOpacity
 
     fun clearCanvas() {
         queueEvent {

@@ -16,6 +16,12 @@ data class PaintingProject(
     var activeTool: String = "PAINTBRUSH",
     var brushSize: Float = 20.0f,
     var brushOpacity: Float = 1.0f,
+    var brushSizeBrush: Float = 20.0f,
+    var brushSizePen: Float = 1.0f,
+    var brushSizeSmudge: Float = 30.0f,
+    var brushOpacityBrush: Float = 1.0f,
+    var brushOpacityPen: Float = 1.0f,
+    var brushOpacitySmudge: Float = 0.5f,
     var manualBrushColor: Int = Color.BLACK,
     var layers: List<LayerMetadata> = emptyList(),
     var activeLayerId: String? = null

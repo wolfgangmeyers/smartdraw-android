@@ -280,6 +280,12 @@ class ProjectManager(private val context: Context) {
             put("activeTool", project.activeTool)
             put("brushSize", project.brushSize.toDouble())
             put("brushOpacity", project.brushOpacity.toDouble())
+            put("brushSizeBrush", project.brushSizeBrush.toDouble())
+            put("brushSizePen", project.brushSizePen.toDouble())
+            put("brushSizeSmudge", project.brushSizeSmudge.toDouble())
+            put("brushOpacityBrush", project.brushOpacityBrush.toDouble())
+            put("brushOpacityPen", project.brushOpacityPen.toDouble())
+            put("brushOpacitySmudge", project.brushOpacitySmudge.toDouble())
             put("manualBrushColor", project.manualBrushColor)
 
             val layersArray = JSONArray()
@@ -319,6 +325,15 @@ class ProjectManager(private val context: Context) {
         }
         val activeLayerId = json.optString("activeLayerId").takeIf { it.isNotEmpty() }
 
+        val bSize = json.optDouble("brushSize", 20.0).toFloat()
+        val bOpacity = json.optDouble("brushOpacity", 1.0).toFloat()
+        val brushSizeBrush = json.optDouble("brushSizeBrush", bSize.toDouble()).toFloat()
+        val brushSizePen = json.optDouble("brushSizePen", 1.0).toFloat()
+        val brushSizeSmudge = json.optDouble("brushSizeSmudge", 30.0).toFloat()
+        val brushOpacityBrush = json.optDouble("brushOpacityBrush", bOpacity.toDouble()).toFloat()
+        val brushOpacityPen = json.optDouble("brushOpacityPen", 1.0).toFloat()
+        val brushOpacitySmudge = json.optDouble("brushOpacitySmudge", 0.5).toFloat()
+
         return PaintingProject(
             id = json.getString("id"),
             title = json.optString("title", "Untitled Painting"),
@@ -331,8 +346,14 @@ class ProjectManager(private val context: Context) {
             useReferenceColors = json.optBoolean("useReferenceColors", true),
             isRatchetEnabled = json.optBoolean("isRatchetEnabled", false),
             activeTool = json.optString("activeTool", "PAINTBRUSH"),
-            brushSize = json.optDouble("brushSize", 20.0).toFloat(),
-            brushOpacity = json.optDouble("brushOpacity", 1.0).toFloat(),
+            brushSize = bSize,
+            brushOpacity = bOpacity,
+            brushSizeBrush = brushSizeBrush,
+            brushSizePen = brushSizePen,
+            brushSizeSmudge = brushSizeSmudge,
+            brushOpacityBrush = brushOpacityBrush,
+            brushOpacityPen = brushOpacityPen,
+            brushOpacitySmudge = brushOpacitySmudge,
             manualBrushColor = json.optInt("manualBrushColor", Color.BLACK),
             layers = layers,
             activeLayerId = activeLayerId

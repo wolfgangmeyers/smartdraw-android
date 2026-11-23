@@ -20,6 +20,8 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
         fun onToolSelected(toolMode: SmartDrawView.ToolMode)
         fun onBrushSizeChanged(radius: Float)
         fun onBrushOpacityChanged(opacity: Float)
+        fun getToolRadius(toolMode: SmartDrawView.ToolMode): Float = 20.0f
+        fun getToolOpacity(toolMode: SmartDrawView.ToolMode): Float = 1.0f
     }
 
     var listener: Listener? = null
@@ -136,25 +138,19 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
 
         cardToolBrush.setOnClickListener {
             if (currentTool != SmartDrawView.ToolMode.PAINTBRUSH) {
-                currentTool = SmartDrawView.ToolMode.PAINTBRUSH
-                updateToolSelectionUI()
-                listener?.onToolSelected(currentTool)
+                selectTool(SmartDrawView.ToolMode.PAINTBRUSH)
             }
         }
 
         cardToolPen.setOnClickListener {
             if (currentTool != SmartDrawView.ToolMode.PEN) {
-                currentTool = SmartDrawView.ToolMode.PEN
-                updateToolSelectionUI()
-                listener?.onToolSelected(currentTool)
+                selectTool(SmartDrawView.ToolMode.PEN)
             }
         }
 
         cardToolSmudge.setOnClickListener {
             if (currentTool != SmartDrawView.ToolMode.SMUDGE) {
-                currentTool = SmartDrawView.ToolMode.SMUDGE
-                updateToolSelectionUI()
-                listener?.onToolSelected(currentTool)
+                selectTool(SmartDrawView.ToolMode.SMUDGE)
             }
         }
 
@@ -184,6 +180,30 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
+    }
+
+    private fun selectTool(toolMode: SmartDrawView.ToolMode) {
+        currentTool = toolMode
+        updateToolSelectionUI()
+        listener?.onToolSelected(currentTool)
+        val r = listener?.getToolRadius(toolMode) ?: currentBrushRadius
+        val o = listener?.getToolOpacity(toolMode) ?: currentBrushOpacity
+        updateToolSettings(r, o)
+    }
+
+    fun updateToolSettings(radius: Float, opacity: Float) {
+        currentBrushRadius = radius
+        currentBrushOpacity = opacity
+
+        val sizeProgress = radiusToProgress(radius)
+        sliderBrushSize.progress = sizeProgress
+        textSizeValue.text = formatRadiusText(radius)
+        brushPreview.brushRadius = radius
+
+        val opacityPercent = (opacity * 100f).roundToInt().coerceIn(1, 100)
+        sliderBrushOpacity.progress = opacityPercent - 1
+        textBrushOpacityValue.text = "$opacityPercent%"
+        brushPreview.brushOpacity = opacity
     }
 
     private fun updateToolSelectionUI() {

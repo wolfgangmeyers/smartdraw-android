@@ -3,14 +3,17 @@ package com.smartdraw
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
+import androidx.fragment.app.FragmentActivity
 import com.smartdraw.core.BezierCurve
 import com.smartdraw.core.Point2D
 import com.smartdraw.gles.SmartDrawRenderer
 import com.smartdraw.input.TouchInputHandler
 import com.smartdraw.project.PaintingProject
 import com.smartdraw.project.ProjectManager
+import com.smartdraw.ui.BrushPreviewView
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -262,5 +265,165 @@ class ToolSpecializationTest {
         ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
 
         assertEquals(1, drawView.getLayers().size)
+    }
+
+    @Test
+    fun testPerToolRadiusAndOpacityPersistenceInSmartDrawView() {
+        val context = Robolectric.buildActivity(MainActivity::class.java).get()
+        val drawView = SmartDrawView(context)
+
+        // Initial default tool is PAINTBRUSH
+        assertEquals(SmartDrawView.ToolMode.PAINTBRUSH, drawView.toolMode)
+        drawView.setBrushSize(10.0f)
+        drawView.brushOpacity = 0.8f
+        assertEquals(10.0f, drawView.getBrushSize(), 0.001f)
+        assertEquals(0.8f, drawView.brushOpacity, 0.001f)
+        assertEquals(10.0f, drawView.getToolRadius(SmartDrawView.ToolMode.PAINTBRUSH), 0.001f)
+
+        // Switch to PEN
+        drawView.toolMode = SmartDrawView.ToolMode.PEN
+        assertEquals(SmartDrawView.ToolMode.PEN, drawView.toolMode)
+        // Set pen size to 0.5 px, opacity 1.0
+        drawView.setBrushSize(0.5f)
+        drawView.brushOpacity = 1.0f
+        assertEquals(0.5f, drawView.getBrushSize(), 0.001f)
+        assertEquals(1.0f, drawView.brushOpacity, 0.001f)
+        assertEquals(0.5f, drawView.getToolRadius(SmartDrawView.ToolMode.PEN), 0.001f)
+
+        // Switch to SMUDGE
+        drawView.toolMode = SmartDrawView.ToolMode.SMUDGE
+        assertEquals(SmartDrawView.ToolMode.SMUDGE, drawView.toolMode)
+        drawView.setBrushSize(35.0f)
+        drawView.brushOpacity = 0.4f
+        assertEquals(35.0f, drawView.getBrushSize(), 0.001f)
+        assertEquals(0.4f, drawView.brushOpacity, 0.001f)
+        assertEquals(35.0f, drawView.getToolRadius(SmartDrawView.ToolMode.SMUDGE), 0.001f)
+
+        // Switch back to PAINTBRUSH: must restore 10.0px and 0.8 opacity
+        drawView.toolMode = SmartDrawView.ToolMode.PAINTBRUSH
+        assertEquals(10.0f, drawView.getBrushSize(), 0.001f)
+        assertEquals(0.8f, drawView.brushOpacity, 0.001f)
+
+        // Switch back to PEN: must restore 0.5px and 1.0 opacity
+        drawView.toolMode = SmartDrawView.ToolMode.PEN
+        assertEquals(0.5f, drawView.getBrushSize(), 0.001f)
+        assertEquals(1.0f, drawView.brushOpacity, 0.001f)
+
+        // Switch back to SMUDGE: must restore 35.0px and 0.4 opacity
+        drawView.toolMode = SmartDrawView.ToolMode.SMUDGE
+        assertEquals(35.0f, drawView.getBrushSize(), 0.001f)
+        assertEquals(0.4f, drawView.brushOpacity, 0.001f)
+    }
+
+    @Test
+    fun testToolSettingsBottomSheetSyncsSlidersOnToolSwitch() {
+        val activity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
+        val sheet = ToolSettingsBottomSheet.newInstance(
+            toolMode = SmartDrawView.ToolMode.PAINTBRUSH,
+            brushRadius = 10.0f,
+            brushOpacity = 0.8f
+        )
+
+        val toolRadii = mutableMapOf(
+            SmartDrawView.ToolMode.PAINTBRUSH to 10.0f,
+            SmartDrawView.ToolMode.PEN to 0.5f,
+            SmartDrawView.ToolMode.SMUDGE to 35.0f
+        )
+        val toolOpacities = mutableMapOf(
+            SmartDrawView.ToolMode.PAINTBRUSH to 0.8f,
+            SmartDrawView.ToolMode.PEN to 1.0f,
+            SmartDrawView.ToolMode.SMUDGE to 0.4f
+        )
+
+        var selectedTool: SmartDrawView.ToolMode? = null
+
+        sheet.listener = object : ToolSettingsBottomSheet.Listener {
+            override fun onToolSelected(toolMode: SmartDrawView.ToolMode) {
+                selectedTool = toolMode
+            }
+
+            override fun onBrushSizeChanged(radius: Float) {
+                selectedTool?.let { toolRadii[it] = radius }
+            }
+
+            override fun onBrushOpacityChanged(opacity: Float) {
+                selectedTool?.let { toolOpacities[it] = opacity }
+            }
+
+            override fun getToolRadius(toolMode: SmartDrawView.ToolMode): Float {
+                return toolRadii[toolMode] ?: 20.0f
+            }
+
+            override fun getToolOpacity(toolMode: SmartDrawView.ToolMode): Float {
+                return toolOpacities[toolMode] ?: 1.0f
+            }
+        }
+
+        sheet.show(activity.supportFragmentManager, "test_sync")
+        activity.supportFragmentManager.executePendingTransactions()
+
+        val view = sheet.requireView()
+        val cardPen: LinearLayout = view.findViewById(R.id.cardToolPen)
+        val cardBrush: LinearLayout = view.findViewById(R.id.cardToolBrush)
+        val cardSmudge: LinearLayout = view.findViewById(R.id.cardToolSmudge)
+        val textSizeValue: TextView = view.findViewById(R.id.textSizeValue)
+        val textOpacityValue: TextView = view.findViewById(R.id.textBrushOpacityValue)
+        val brushPreview: BrushPreviewView = view.findViewById(R.id.brushPreview)
+
+        // Initially Paintbrush at 10px, 80%
+        assertEquals("10 px", textSizeValue.text)
+        assertEquals("80%", textOpacityValue.text)
+        assertEquals(10.0f, brushPreview.brushRadius, 0.001f)
+
+        // Switch to Pen: should immediately sync sliders to 0.5px, 100%
+        cardPen.performClick()
+        assertEquals(SmartDrawView.ToolMode.PEN, selectedTool)
+        assertEquals("0.5 px", textSizeValue.text)
+        assertEquals("100%", textOpacityValue.text)
+        assertEquals(0.5f, brushPreview.brushRadius, 0.001f)
+
+        // Switch to Smudge: should immediately sync sliders to 35px, 40%
+        cardSmudge.performClick()
+        assertEquals(SmartDrawView.ToolMode.SMUDGE, selectedTool)
+        assertEquals("35 px", textSizeValue.text)
+        assertEquals("40%", textOpacityValue.text)
+        assertEquals(35.0f, brushPreview.brushRadius, 0.001f)
+
+        // Switch back to Paintbrush: should immediately sync back to 10px, 80%
+        cardBrush.performClick()
+        assertEquals(SmartDrawView.ToolMode.PAINTBRUSH, selectedTool)
+        assertEquals("10 px", textSizeValue.text)
+        assertEquals("80%", textOpacityValue.text)
+        assertEquals(10.0f, brushPreview.brushRadius, 0.001f)
+    }
+
+    @Test
+    fun testPerToolPersistenceInProjectManager() {
+        val context = Robolectric.buildActivity(MainActivity::class.java).get()
+        val pm = ProjectManager(context)
+        val dummyBmp = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888)
+
+        val project = pm.createNewProject(1024, 1024, "Per-Tool Persistence Test")
+        project.activeTool = "PEN"
+        project.brushSize = 0.5f
+        project.brushSizeBrush = 12.0f
+        project.brushSizePen = 0.5f
+        project.brushSizeSmudge = 45.0f
+        project.brushOpacityBrush = 0.75f
+        project.brushOpacityPen = 1.0f
+        project.brushOpacitySmudge = 0.35f
+
+        pm.saveProject(project, dummyBmp, null, isDirty = true)
+
+        val loaded = pm.loadProject(project.id).project
+        assertNotNull(loaded)
+        assertEquals("PEN", loaded.activeTool)
+        assertEquals(0.5f, loaded.brushSize, 0.001f)
+        assertEquals(12.0f, loaded.brushSizeBrush, 0.001f)
+        assertEquals(0.5f, loaded.brushSizePen, 0.001f)
+        assertEquals(45.0f, loaded.brushSizeSmudge, 0.001f)
+        assertEquals(0.75f, loaded.brushOpacityBrush, 0.001f)
+        assertEquals(1.0f, loaded.brushOpacityPen, 0.001f)
+        assertEquals(0.35f, loaded.brushOpacitySmudge, 0.001f)
     }
 }
