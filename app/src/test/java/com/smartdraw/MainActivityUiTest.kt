@@ -34,7 +34,6 @@ class MainActivityUiTest {
         val btnActiveTool: ImageButton = activity.findViewById(R.id.btnActiveTool)
         val btnColorSettings: ImageButton = activity.findViewById(R.id.btnColorSettings)
         val btnEyedropper: ImageButton = activity.findViewById(R.id.btnEyedropper)
-        val btnResetView: ImageButton = activity.findViewById(R.id.btnResetView)
         val btnLayers: ImageButton = activity.findViewById(R.id.btnLayers)
         val btnUndo: ImageButton = activity.findViewById(R.id.btnUndo)
         val btnRedo: ImageButton = activity.findViewById(R.id.btnRedo)
@@ -45,13 +44,18 @@ class MainActivityUiTest {
         assertNotNull(btnActiveTool)
         assertNotNull(btnColorSettings)
         assertNotNull(btnEyedropper)
-        assertNotNull(btnResetView)
         assertNotNull(btnLayers)
         assertNotNull(btnUndo)
         assertNotNull(btnRedo)
         assertNotNull(btnGallery)
         assertNotNull(btnMoreOptions)
         assertNotNull(drawView)
+
+        // Floating undo and redo buttons are inside canvasContainer above canvas
+        val canvasContainer: android.widget.FrameLayout = activity.findViewById(R.id.canvasContainer)
+        assertNotNull(canvasContainer)
+        assertEquals(canvasContainer, btnUndo.parent)
+        assertEquals(canvasContainer, btnRedo.parent)
 
         // Initial undo/redo state
         assertFalse(btnUndo.isEnabled)

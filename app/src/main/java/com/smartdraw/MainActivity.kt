@@ -60,7 +60,6 @@ class MainActivity : AppCompatActivity(),
     private lateinit var btnActiveTool: ImageButton
     private lateinit var btnColorSettings: ImageButton
     private lateinit var btnEyedropper: ImageButton
-    private lateinit var btnResetView: ImageButton
     private lateinit var btnLayers: ImageButton
     lateinit var btnUndo: ImageButton
     lateinit var btnRedo: ImageButton
@@ -90,7 +89,6 @@ class MainActivity : AppCompatActivity(),
         btnActiveTool = findViewById(R.id.btnActiveTool)
         btnColorSettings = findViewById(R.id.btnColorSettings)
         btnEyedropper = findViewById(R.id.btnEyedropper)
-        btnResetView = findViewById(R.id.btnResetView)
         btnLayers = findViewById(R.id.btnLayers)
         btnUndo = findViewById(R.id.btnUndo)
         btnRedo = findViewById(R.id.btnRedo)
@@ -202,11 +200,6 @@ class MainActivity : AppCompatActivity(),
                 Toast.makeText(this@MainActivity, "Tap or drag on canvas to pick a color", Toast.LENGTH_SHORT).show()
             }
             updateEyedropperUI()
-        }
-
-        btnResetView.setOnClickListener {
-            drawView.resetView()
-            statusText.text = "View reset to 1:1 centered"
         }
 
         btnLayers.setOnClickListener {
@@ -663,7 +656,6 @@ class MainActivity : AppCompatActivity(),
         btnActiveTool.isEnabled = enabled
         btnColorSettings.isEnabled = enabled
         btnEyedropper.isEnabled = enabled
-        btnResetView.isEnabled = enabled
         btnGallery.isEnabled = enabled
         btnMoreOptions.isEnabled = enabled
     }
