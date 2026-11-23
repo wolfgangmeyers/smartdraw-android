@@ -232,47 +232,37 @@
             android:letterSpacing="0.08"
             android:layout_marginBottom="12dp" />
 
-        <LinearLayout
+        <!-- Reset View: Fit canvas to viewport -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnResetCanvasView"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="20dp">
+            android:layout_height="48dp"
+            android:text="Reset View: Fit canvas to viewport"
+            android:textColor="#FFFFFF"
+            android:textAllCaps="false"
+            android:textSize="13sp"
+            app:icon="@drawable/ic_reset_view"
+            app:iconTint="#FFFFFF"
+            app:iconGravity="textStart"
+            app:backgroundTint="#2D2D2D"
+            app:cornerRadius="10dp"
+            android:layout_marginBottom="12dp" />
 
-            <!-- Clear Painting -->
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnClearPainting"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:layout_marginEnd="6dp"
-                android:text="Clear Canvas"
-                android:textColor="#FF5252"
-                android:textAllCaps="false"
-                android:textSize="13sp"
-                app:icon="@drawable/ic_delete"
-                app:iconTint="#FF5252"
-                app:iconGravity="textStart"
-                app:backgroundTint="#2D2D2D"
-                app:cornerRadius="10dp" />
-
-            <!-- Reset View -->
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnResetCanvasView"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:layout_marginStart="6dp"
-                android:text="Reset View"
-                android:textColor="#FFFFFF"
-                android:textAllCaps="false"
-                android:textSize="13sp"
-                app:icon="@drawable/ic_reset_view"
-                app:iconTint="#FFFFFF"
-                app:iconGravity="textStart"
-                app:backgroundTint="#2D2D2D"
-                app:cornerRadius="10dp" />
-
-        </LinearLayout>
+        <!-- Clear Painting -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnClearPainting"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="Clear Canvas"
+            android:textColor="#FF5252"
+            android:textAllCaps="false"
+            android:textSize="13sp"
+            app:icon="@drawable/ic_delete"
+            app:iconTint="#FF5252"
+            app:iconGravity="textStart"
+            app:backgroundTint="#2D2D2D"
+            app:cornerRadius="10dp"
+            android:layout_marginBottom="20dp" />
 
         <View
             android:layout_width="match_parent"

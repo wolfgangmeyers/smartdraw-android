@@ -60,8 +60,9 @@ class MainActivity : AppCompatActivity(),
     private lateinit var btnActiveTool: ImageButton
     private lateinit var btnColorSettings: ImageButton
     private lateinit var btnEyedropper: ImageButton
-    private lateinit var btnResetView: ImageButton
     private lateinit var btnLayers: ImageButton
+    lateinit var btnUndo: ImageButton
+    lateinit var btnRedo: ImageButton
     private lateinit var btnGallery: ImageButton
     private lateinit var btnMoreOptions: ImageButton
     private lateinit var statusText: TextView
@@ -88,8 +89,9 @@ class MainActivity : AppCompatActivity(),
         btnActiveTool = findViewById(R.id.btnActiveTool)
         btnColorSettings = findViewById(R.id.btnColorSettings)
         btnEyedropper = findViewById(R.id.btnEyedropper)
-        btnResetView = findViewById(R.id.btnResetView)
         btnLayers = findViewById(R.id.btnLayers)
+        btnUndo = findViewById(R.id.btnUndo)
+        btnRedo = findViewById(R.id.btnRedo)
         btnGallery = findViewById(R.id.btnGallery)
         btnMoreOptions = findViewById(R.id.btnMoreOptions)
         statusText = findViewById(R.id.statusText)
@@ -139,6 +141,10 @@ class MainActivity : AppCompatActivity(),
 
         drawView.onStrokeCompleted = {
             autoSaveManager.markDirty()
+        }
+
+        drawView.onHistoryStateChanged = { canUndo, canRedo ->
+            updateHistoryUI(canUndo, canRedo)
         }
 
         drawView.onLayersChanged = {
@@ -196,13 +202,16 @@ class MainActivity : AppCompatActivity(),
             updateEyedropperUI()
         }
 
-        btnResetView.setOnClickListener {
-            drawView.resetView()
-            statusText.text = "View reset to 1:1 centered"
-        }
-
         btnLayers.setOnClickListener {
             LayerManagerBottomSheet.newInstance().show(supportFragmentManager, "LayerManagerBottomSheet")
+        }
+
+        btnUndo.setOnClickListener {
+            drawView.undo()
+        }
+
+        btnRedo.setOnClickListener {
+            drawView.redo()
         }
 
         btnGallery.setOnClickListener {
@@ -216,8 +225,7 @@ class MainActivity : AppCompatActivity(),
         updateActiveToolUI()
         updateColorUI()
         updateEyedropperUI()
-
-        updateActiveToolUI()
+        updateHistoryUI(drawView.canUndo(), drawView.canRedo())
 
         // Session Restoration / Cold Start
         restoreOrInitializeSession()
@@ -634,11 +642,20 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
+    fun updateHistoryUI(canUndo: Boolean, canRedo: Boolean) {
+        btnUndo.isEnabled = canUndo
+        btnUndo.isClickable = canUndo
+        btnUndo.alpha = if (canUndo) 1.0f else 0.35f
+
+        btnRedo.isEnabled = canRedo
+        btnRedo.isClickable = canRedo
+        btnRedo.alpha = if (canRedo) 1.0f else 0.35f
+    }
+
     private fun setButtonsEnabled(enabled: Boolean) {
         btnActiveTool.isEnabled = enabled
         btnColorSettings.isEnabled = enabled
         btnEyedropper.isEnabled = enabled
-        btnResetView.isEnabled = enabled
         btnGallery.isEnabled = enabled
         btnMoreOptions.isEnabled = enabled
     }

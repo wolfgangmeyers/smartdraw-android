@@ -27,13 +27,18 @@ Native Android reference-guided painting and sketch application built in Kotlin 
   - `GlesFbo`: Full bitmap exports (`readBitmap`) and bounded sub-rectangle readbacks (`readSubRect`) perform vertical scanline row-flipping.
 - **Pending GL Lifecycle Queue**: Thread-safe staging mechanism (`pendingBaseBitmap`, `pendingReferenceBitmap`, etc.) queues textures on the Main Thread and drains them on `onSurfaceCreated()` inside the active EGL render context.
 
-### 4. Streamlined Icon-Only Toolbar & Active Tool Switcher
-- **Uncluttered 5-Icon Top Bar**:
+### 4. Streamlined Icon-Only Toolbar & Canvas Controls
+- **Uncluttered Top Bar**:
   - `btnActiveTool`: Displays active tool icon (Paintbrush / Pen / Smudge) with active surface highlight.
-  - `btnAutoColor`: Color sampling eyedropper with active/inactive visual highlight.
-  - `btnResetView`: Snaps viewport to 1:1 aspect-fit centered.
+  - `btnColorSettings`: Dedicated color button with live swatch / auto-color indicator.
+  - `btnEyedropper`: One-tap canvas color sampler.
+  - `btnLayers`: Multi-layer manager modal.
+  - Flexible spacer.
   - `btnGallery`: Opens the multi-painting gallery modal.
-  - `btnMoreOptions`: Overflow ellipsis (`...`) opening secondary settings.
+  - `btnMoreOptions`: Overflow ellipsis (`...`) opening secondary settings (including Reset View).
+- **Floating Action Buttons**:
+  - `btnUndo`: Bottom-left circular floating action button above the canvas.
+  - `btnRedo`: Bottom-right circular floating action button above the canvas.
 - **Tool Settings Bottom Sheet (`ToolSettingsBottomSheet`)**:
   - Direct selection cards for **Paintbrush**, **Pen**, and **Smudge** tools.
   - Interactive live **Brush Preview Ring** (`BrushPreviewView`) rendering antialiased stamps dynamically updating with radius and opacity changes.

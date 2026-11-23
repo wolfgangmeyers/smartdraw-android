@@ -937,12 +937,12 @@ SmartDraw Android implements an uncluttered, modern dark-theme user interface op
 
 ### 13.1 Streamlined Icon-Only Top Toolbar (`activity_main.xml`)
 
-The top app bar (height $56\text{ dp}$, background `#1E1E1E`, elevation $4\text{ dp}$) houses six primary controls with visual state cues:
+The top app bar (height $56\text{ dp}$, background `#1E1E1E`, elevation $4\text{ dp}$) houses six primary controls with visual state cues, decluttered to leave ample breathing room across all screen widths:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ [ Tool ] [ Color ] [ 💧 Eyedropper ] [ Reset View ] [ ⧉ Layers ]   <Spacer>   [ 🖼 Gallery ] [ … More ] │
-└─────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ [ Tool ] [ Color ] [ 💧 Eyedropper ] [ ⧉ Layers ]   <Spacer>   [ 🖼 Gallery ] [ … More ] │
+└────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 1. **`btnActiveTool` (Active Tool Icon & Quick Settings Trigger)**:
@@ -959,24 +959,47 @@ The top app bar (height $56\text{ dp}$, background `#1E1E1E`, elevation $4\text{
    - One-tap activation of canvas eyedropper mode (`drawView.isEyedropperActive = true`).
    - Highlights with `@drawable/bg_tool_button_active` when eyedropper mode is active.
    - Touching or dragging on the canvas samples pixel colors in real time. Releasing (`ACTION_UP`) immediately commits the sampled color, switches to manual color mode, and deactivates eyedropper mode. Tapping the toolbar button while active toggles eyedropper mode off.
-4. **`btnResetView` (Viewport Reset to 1:1 Aspect-Fit Centered)**:
-   - Displays the target frame icon (`ic_reset_view`).
-   - Instantly snaps canvas scale to aspect-fit ($S = 1.0$), rotation to $\theta = 0^\circ$, and centers the canvas inside the viewport.
-5. **`btnLayers` (Layer Management Button)**:
+4. **`btnLayers` (Layer Management Button)**:
    - Displays the layers icon (`ic_layers`).
    - Single tap opens the **Layer Management Bottom Sheet** (`LayerManagerBottomSheet`).
-6. **Flexible Spacer (`View weight=1`)**:
+5. **Flexible Spacer (`View weight=1`)**:
    - Generously separates core drawing tools on the left from document and session management on the right.
-7. **`btnGallery` (Multi-Painting Gallery)**:
+6. **`btnGallery` (Multi-Painting Gallery)**:
    - Displays the image grid icon (`ic_gallery`).
    - Flushes active auto-save and opens the **Paintings Gallery** modal (`GalleryDialogFragment`).
-8. **`btnMoreOptions` (Overflow Ellipsis Settings Sheet)**:
+7. **`btnMoreOptions` (Overflow Ellipsis Settings Sheet)**:
    - Displays the ellipsis icon (`ic_more`).
    - Opens the **More Options Bottom Sheet** (`MoreOptionsBottomSheet`).
 
 ---
 
-### 13.2 Tool Settings Bottom Sheet (`ToolSettingsBottomSheet.kt`)
+### 13.2 Floating Canvas Action Controls (Undo / Redo)
+
+To maximize toolbar accessibility and eliminate button crowding on mobile viewports, Undo and Redo are elevated to floating action buttons situated directly over the canvas in the lower corners:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                                                              │
+│                         CANVAS                               │
+│                                                              │
+│                                                              │
+│  [ ↶ Undo ]                                      [ ↷ Redo ]  │
+│  (Bottom-Left)                                (Bottom-Right) │
+└──────────────────────────────────────────────────────────────┘
+```
+
+1. **Floating Undo Button (`btnUndo`)**:
+   - **Positioning**: Bottom-left corner of `canvasContainer` (`layout_gravity="bottom|start"`, margins $16\text{ dp}$ start and bottom).
+   - **Dimensions & Style**: $48\text{ dp} \times 48\text{ dp}$ circular action button with $6\text{ dp}$ elevation and `@drawable/bg_floating_button` (`#CC1E1E1E` dark semi-transparent surface with a $1\text{ dp}$ `#33FFFFFF` border and standard ripple touch feedback).
+   - **Visual State**: Rendered with `@drawable/ic_undo` in crisp white tint (`#FFFFFF`). Alpha transitions between `1.0f` when undo actions are available (`canUndo == true`) and `0.35f` when the undo stack is empty (`canUndo == false`, clicks disabled).
+2. **Floating Redo Button (`btnRedo`)**:
+   - **Positioning**: Bottom-right corner of `canvasContainer` (`layout_gravity="bottom|end"`, margins $16\text{ dp}$ end and bottom).
+   - **Dimensions & Style**: $48\text{ dp} \times 48\text{ dp}$ circular action button with $6\text{ dp}$ elevation and `@drawable/bg_floating_button`.
+   - **Visual State**: Rendered with `@drawable/ic_redo` in crisp white tint (`#FFFFFF`). Alpha transitions between `1.0f` when redo actions are available (`canRedo == true`) and `0.35f` when the redo stack is empty (`canRedo == false`, clicks disabled).
+
+---
+
+### 13.3 Tool Settings Bottom Sheet (`ToolSettingsBottomSheet.kt`)
 
 Activated by tapping the active tool icon (`btnActiveTool`) in the toolbar, this bottom sheet provides tactile control strictly focused on tool selection, radius, and opacity with real-time visual feedback:
 
@@ -1005,7 +1028,7 @@ Activated by tapping the active tool icon (`btnActiveTool`) in the toolbar, this
 
 ---
 
-### 13.3 Dedicated Color Settings Bottom Sheet (`ColorSettingsBottomSheet.kt`)
+### 13.4 Dedicated Color Settings Bottom Sheet (`ColorSettingsBottomSheet.kt`)
 
 Activated by tapping the dedicated color button (`btnColorSettings`) in the top toolbar, this bottom sheet centralizes color configuration:
 
@@ -1034,9 +1057,9 @@ Activated by tapping the dedicated color button (`btnColorSettings`) in the top 
 
 ---
 
-### 13.4 Overflow Settings Bottom Sheet (`MoreOptionsBottomSheet.kt`)
+### 13.5 Overflow Settings Bottom Sheet (`MoreOptionsBottomSheet.kt`)
 
-Activated by tapping the ellipsis (`...`) button, this sheet consolidates secondary document and layer controls:
+Activated by tapping the ellipsis (`...`) button (`btnMoreOptions`), this sheet consolidates secondary document, layer, and canvas view controls:
 
 1. **Nested Source Image Action**:
    - Dynamic button: Displays "Load Source Image" if no custom reference image is present, or "Change Source Image" if an image is already active.
@@ -1049,11 +1072,12 @@ Activated by tapping the ellipsis (`...`) button, this sheet consolidates second
 4. **Ratchet Mode Toggle (`SwitchCompat`)**:
    - Switch control labeled "Ratchet Mode (Keep Improvements Only)" with explanatory subtitle.
    - Enforces distance-monotonic painting (§12).
-5. **Clear Canvas Action**:
+5. **Reset Canvas View Action (`btnResetCanvasView`)**:
+   - Prominent action button styled with `ic_reset_view` and labeled "Reset View: Fit canvas to viewport".
+   - Dismisses the bottom sheet and executes `drawView.resetView()`, snapping canvas scale to aspect-fit ($S = 1.0$), rotation to $\theta = 0^\circ$, and centering the canvas inside the viewport.
+6. **Clear Canvas Action**:
    - Raises a destructive confirmation alert dialog: "Are you sure you want to clear your painting? This cannot be undone."
    - Clears `baseFbo` and `scratchFbo` to opaque white upon confirmation.
-6. **Reset Canvas View Action**:
-   - Redundant shortcut executing `drawView.resetView()`.
 7. **Run Test Harness Action**:
    - Triggers asynchronous execution of the 30–200 stroke Bezier test harness (§9).
 8. **Document Shortcuts**:
@@ -1061,7 +1085,7 @@ Activated by tapping the ellipsis (`...`) button, this sheet consolidates second
 
 ---
 
-### 13.5 Source Image Import & Aspect-Fit Resolution Scaling Modal (`dialog_import_image.xml`)
+### 13.6 Source Image Import & Aspect-Fit Resolution Scaling Modal (`dialog_import_image.xml`)
 
 When an image is picked from device storage or gallery:
 
@@ -1080,7 +1104,7 @@ When an image is picked from device storage or gallery:
 
 ---
 
-### 13.6 Multi-Painting Gallery Dialog (`GalleryDialogFragment.kt` & `GalleryAdapter.kt`)
+### 13.7 Multi-Painting Gallery Dialog (`GalleryDialogFragment.kt` & `GalleryAdapter.kt`)
 
 Provides visual, responsive document management:
 
@@ -1100,7 +1124,7 @@ Provides visual, responsive document management:
 
 ---
 
-### 13.7 Dedicated Status Banner & Progress Indicator
+### 13.8 Dedicated Status Banner & Progress Indicator
 
 Positioned immediately beneath the top toolbar (background `#181818`, height $32\text{ dp}$):
 - Displays real-time operational feedback: e.g., "Ready - Draw with stylus, pan/zoom with two fingers", "Tool: Paintbrush (size: 24 px)", "Brush color: #2979FF", "Auto color sampling enabled", "View reset to 1:1 centered".
@@ -1108,7 +1132,7 @@ Positioned immediately beneath the top toolbar (background `#181818`, height $32
 
 ---
 
-### 13.8 Complete UI Action & Event Flow Matrix
+### 13.9 Complete UI Action & Event Flow Matrix
 
 | UI Component | User Action | Event / Execution Target | State Transition |
 | :--- | :--- | :--- | :--- |
@@ -1122,7 +1146,9 @@ Positioned immediately beneath the top toolbar (background `#181818`, height $32
 | **Eyedropper Button (Sheet)** | Click | `onEyedropperRequested()` | Dismisses sheet, sets `isEyedropperActive = true`, updates toolbar eyedropper highlight |
 | **`btnEyedropper` (Toolbar)** | Click | Toggle `drawView.isEyedropperActive` | One-tap toggle of canvas eyedropper mode, highlights toolbar button |
 | **Canvas Eyedropper** | Touch / Drag | `sampleCanvasColor(cx, cy)` | Samples `baseFbo` pixel, updates color live; commits & deactivates on release |
-| **`btnResetView`** | Click | `drawView.resetView()` | Viewport scale $\to S_{\text{fit}}$, rotation $\to 0^\circ$, centered |
+| **`btnUndo` (Floating Bottom-Left)** | Click | `drawView.undo()` | Reverts last sub-rect stroke change, updates undo/redo button states |
+| **`btnRedo` (Floating Bottom-Right)** | Click | `drawView.redo()` | Reapplies next sub-rect stroke change, updates undo/redo button states |
+| **`btnResetCanvasView` (More Options)** | Click | `drawView.resetView()` | Viewport scale $\to S_{\text{fit}}$, rotation $\to 0^\circ$, centered |
 | **`btnGallery`** | Click | `openGallery()` | Flushes auto-save, opens `GalleryDialogFragment` |
 | **`btnMoreOptions`** | Click | `showMoreOptionsModal()` | Opens `MoreOptionsBottomSheet` |
 | **Load/Change Source Image** | Click | `pickImageLauncher.launch("image/*")` | Opens system photo picker |
@@ -1148,7 +1174,7 @@ Positioned immediately beneath the top toolbar (background `#181818`, height $32
 
 ---
 
-### 13.9 Layer Management Bottom Sheet (`LayerManagerBottomSheet.kt` & `modal_layer_manager.xml`)
+### 13.10 Layer Management Bottom Sheet (`LayerManagerBottomSheet.kt` & `modal_layer_manager.xml`)
 
 Activated by tapping the layers icon (`btnLayers`) in the top toolbar, this bottom sheet provides full multi-layer creation, organization, and compositing control:
 
@@ -1169,5 +1195,76 @@ Activated by tapping the layers icon (`btnLayers`) in the top toolbar, this bott
    - **Layer Name**: Displays layer title (e.g., "Layer 1", "Layer 2", "Layer 1 Copy").
    - **Visibility Toggle**: Eye icon (`ic_visibility` when visible, `ic_visibility_off` with dimmed `#757575` tint when hidden). Toggling updates the compositing pass instantly without destroying drawing contents.
    - **Opacity Slider**: Integrated $0-100\%$ `SeekBar` with live percentage readout, modulating the layer quad's alpha in real time.
+
+---
+
+## 14. Undo / Redo with Minimal Bounding Square Sub-Rect Diffs
+
+SmartDraw Android implements a multi-level, memory-efficient Undo / Redo system. Rather than duplicating full megapixel canvas textures (which would exhaust GPU and heap memory on large canvases such as $4096 \times 4096$), the engine captures only the minimal square bounding sub-rectangle affected by each individual stroke or smudge operation.
+
+### 14.1 SubRectDiff Architecture
+
+Each undoable operation is captured as a discrete `SubRectDiff`:
+
+```kotlin
+data class SubRectDiff(
+    val layerId: String,
+    val x: Int,
+    val y: Int,
+    val width: Int,
+    val height: Int,
+    val beforePixels: IntArray,
+    val afterPixels: IntArray
+)
+```
+
+- **`layerId`**: Identifier of the target canvas layer where the drawing operation occurred.
+- **`x`, `y`**: Canvas-space coordinates of the top-left corner of the affected bounding box.
+- **`width`, `height`**: Dimensions of the affected sub-rectangle (in pixels).
+- **`beforePixels`**: Row-major packed 32-bit ARGB pixels of size $\text{width} \times \text{height}$ capturing the layer's pixels immediately prior to the stroke.
+- **`afterPixels`**: Row-major packed 32-bit ARGB pixels of size $\text{width} \times \text{height}$ capturing the layer's pixels immediately after the stroke is permanently committed.
+
+### 14.2 Minimal Bounding Square Calculation
+
+When a stylus stroke or smudge begins (`onStrokeStart`):
+1. A pre-stroke capture of the target layer's pixels is initiated (`beginStrokeCapture()`).
+2. Point cloud tracking records every coordinate $(x_i, y_i)$ and dynamic radius $R_i$.
+3. When the stroke finishes (`onStrokeEnd`), the bounding box is computed over all stroke points and maximum radius:
+
+```kotlin
+val minX = points.minOf { it.x - maxRadius }.toInt().coerceIn(0, width - 1)
+val maxX = points.maxOf { it.x + maxRadius }.toInt().coerceIn(0, width - 1)
+val minY = points.minOf { it.y - maxRadius }.toInt().coerceIn(0, height - 1)
+val maxY = points.maxOf { it.y + maxRadius }.toInt().coerceIn(0, height - 1)
+
+// Expand to square:
+val side = maxOf(maxX - minX + 1, maxY - minY + 1)
+val boxW = minOf(side, width - minX)
+val boxH = minOf(side, height - minY)
+```
+
+4. The engine reads `afterPixels` over $(minX, minY, boxW, boxH)$ on the target layer's FBO, extracts the matching sub-rectangle from `beforePixels`, and packages them into `SubRectDiff`.
+
+### 14.3 Stack Invariants & Memory Bounds
+
+- **Undo Stack (`undoStack`)**: Holds up to 30 sequential `SubRectDiff` operations (configurable via `maxUndoHistory = 30`). When the stack exceeds 30 items, the oldest diff is dropped from the bottom of the deque.
+- **Redo Stack (`redoStack`)**: Stores diffs that have been undone. Any newly committed stroke automatically clears the `redoStack`.
+- **Canvas Resizing & Layer Reset (`clearHistory()`)**: When loading a new project, clearing the canvas, or resizing dimensions, both stacks are purged.
+- **Sub-Rect Texture Blit (`GlesFbo.loadSubRect`)**: Undoing or redoing uploads only the $(boxW \times boxH)$ pixels into the target layer texture using `glTexSubImage2D`, ensuring near-instantaneous restoration without allocating or reallocating FBO textures.
+
+### 14.4 Toolbar Action Integration
+
+- **Toolbar Buttons**:
+  - `btnUndo` (icon: `ic_undo.xml`, description: "Undo")
+  - `btnRedo` (icon: `ic_redo.xml`, description: "Redo")
+- **Dynamic Visual State**:
+  - When active (`canUndo` or `canRedo` is true): `alpha = 1.0f`, `isEnabled = true`, `isClickable = true`.
+  - When inactive (`canUndo` or `canRedo` is false): `alpha = 0.35f`, `isEnabled = false`, `isClickable = false`.
+- **Click Actions**:
+  - `btnUndo.setOnClickListener { drawView.undo() }`
+  - `btnRedo.setOnClickListener { drawView.redo() }`
+- **Callback Hook**: `SmartDrawView.onHistoryStateChanged: ((canUndo: Boolean, canRedo: Boolean) -> Unit)?` notifies the UI immediately when stack availability changes.
+
+---
 
 
