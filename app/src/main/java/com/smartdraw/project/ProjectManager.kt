@@ -282,9 +282,11 @@ class ProjectManager(private val context: Context) {
             put("brushOpacity", project.brushOpacity.toDouble())
             put("brushSizeBrush", project.brushSizeBrush.toDouble())
             put("brushSizePen", project.brushSizePen.toDouble())
+            put("brushSizeEraser", project.brushSizeEraser.toDouble())
             put("brushSizeSmudge", project.brushSizeSmudge.toDouble())
             put("brushOpacityBrush", project.brushOpacityBrush.toDouble())
             put("brushOpacityPen", project.brushOpacityPen.toDouble())
+            put("brushOpacityEraser", project.brushOpacityEraser.toDouble())
             put("brushOpacitySmudge", project.brushOpacitySmudge.toDouble())
             put("manualBrushColor", project.manualBrushColor)
 
@@ -329,9 +331,11 @@ class ProjectManager(private val context: Context) {
         val bOpacity = json.optDouble("brushOpacity", 1.0).toFloat()
         val brushSizeBrush = json.optDouble("brushSizeBrush", bSize.toDouble()).toFloat()
         val brushSizePen = json.optDouble("brushSizePen", 1.0).toFloat()
+        val brushSizeEraser = json.optDouble("brushSizeEraser", 20.0).toFloat()
         val brushSizeSmudge = json.optDouble("brushSizeSmudge", 30.0).toFloat()
         val brushOpacityBrush = json.optDouble("brushOpacityBrush", bOpacity.toDouble()).toFloat()
         val brushOpacityPen = json.optDouble("brushOpacityPen", 1.0).toFloat()
+        val brushOpacityEraser = json.optDouble("brushOpacityEraser", 1.0).toFloat()
         val brushOpacitySmudge = json.optDouble("brushOpacitySmudge", 0.5).toFloat()
 
         return PaintingProject(
@@ -350,9 +354,11 @@ class ProjectManager(private val context: Context) {
             brushOpacity = bOpacity,
             brushSizeBrush = brushSizeBrush,
             brushSizePen = brushSizePen,
+            brushSizeEraser = brushSizeEraser,
             brushSizeSmudge = brushSizeSmudge,
             brushOpacityBrush = brushOpacityBrush,
             brushOpacityPen = brushOpacityPen,
+            brushOpacityEraser = brushOpacityEraser,
             brushOpacitySmudge = brushOpacitySmudge,
             manualBrushColor = json.optInt("manualBrushColor", Color.BLACK),
             layers = layers,

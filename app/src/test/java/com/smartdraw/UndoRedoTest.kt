@@ -124,6 +124,91 @@ class UndoRedoTest {
     }
 
     @Test
+    fun testEraserUndoRedoRestoresTransparentAndOpaquePixels() {
+        val canvasWidth = 50
+        val canvasHeight = 50
+        val layerId = "layer-eraser"
+        val layerPixels = IntArray(canvasWidth * canvasHeight) { 0xFF0000FF.toInt() } // Opaque Blue
+
+        fun loadSubRectMock(x: Int, y: Int, w: Int, h: Int, src: IntArray) {
+            for (row in 0 until h) {
+                val dstOffset = (y + row) * canvasWidth + x
+                val srcOffset = row * w
+                System.arraycopy(src, srcOffset, layerPixels, dstOffset, w)
+            }
+        }
+
+        fun readSubRectMock(x: Int, y: Int, w: Int, h: Int): IntArray {
+            val out = IntArray(w * h)
+            for (row in 0 until h) {
+                val srcOffset = (y + row) * canvasWidth + x
+                val dstOffset = row * w
+                System.arraycopy(layerPixels, srcOffset, out, dstOffset, w)
+            }
+            return out
+        }
+
+        val renderer = SmartDrawRenderer(canvasWidth, canvasHeight)
+
+        // Before erasing: 10x10 sub-rect is opaque blue
+        val beforeErase = readSubRectMock(5, 5, 10, 10)
+        assertEquals(0xFF0000FF.toInt(), beforeErase[0])
+
+        // Erasing clears pixels back to transparent (0x00000000) via destination-alpha subtraction
+        val afterErase = IntArray(100) { 0x00000000 }
+        val diff = SubRectDiff(
+            layerId = layerId,
+            x = 5,
+            y = 5,
+            width = 10,
+            height = 10,
+            beforePixels = beforeErase,
+            afterPixels = afterErase
+        )
+
+        loadSubRectMock(5, 5, 10, 10, afterErase)
+        renderer.undoStack.addLast(diff)
+        renderer.redoStack.clear()
+
+        // Verify erased area is transparent
+        val readErased = readSubRectMock(5, 5, 10, 10)
+        assertEquals(0x00000000, readErased[0])
+        assertTrue(renderer.canUndo())
+
+        // Undo -> Area restored to opaque blue
+        val undoDiff = renderer.undoStack.removeLast()
+        loadSubRectMock(undoDiff.x, undoDiff.y, undoDiff.width, undoDiff.height, undoDiff.beforePixels)
+        renderer.redoStack.addLast(undoDiff)
+
+        val readRestored = readSubRectMock(5, 5, 10, 10)
+        assertEquals(0xFF0000FF.toInt(), readRestored[0])
+        assertTrue(renderer.canRedo())
+
+        // Redo -> Area re-erased back to transparent
+        val redoDiff = renderer.redoStack.removeLast()
+        loadSubRectMock(redoDiff.x, redoDiff.y, redoDiff.width, redoDiff.height, redoDiff.afterPixels)
+        renderer.undoStack.addLast(redoDiff)
+
+        val readReErased = readSubRectMock(5, 5, 10, 10)
+        assertEquals(0x00000000, readReErased[0])
+    }
+
+    @Test
+    fun testCommitUndoDiffClearsActiveStrokeBuffers() {
+        val renderer = SmartDrawRenderer(64, 64)
+        renderer.activeStrokePoints.add(Point2D(10f, 10f, 1f))
+        renderer.activeStrokeRadii.add(15f)
+
+        assertEquals(1, renderer.activeStrokePoints.size)
+        assertEquals(1, renderer.activeStrokeRadii.size)
+
+        renderer.commitUndoDiff()
+
+        assertEquals(0, renderer.activeStrokePoints.size)
+        assertEquals(0, renderer.activeStrokeRadii.size)
+    }
+
+    @Test
     fun testUndoStackBoundsTrimming() {
         val renderer = SmartDrawRenderer(100, 100)
         val layerId = renderer.getActiveLayer().id

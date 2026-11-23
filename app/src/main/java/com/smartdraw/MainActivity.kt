@@ -113,6 +113,7 @@ class MainActivity : AppCompatActivity(),
                     p.activeTool = when (drawView.toolMode) {
                         SmartDrawView.ToolMode.PAINTBRUSH -> "PAINTBRUSH"
                         SmartDrawView.ToolMode.PEN -> "PEN"
+                        SmartDrawView.ToolMode.ERASER -> "ERASER"
                         SmartDrawView.ToolMode.SMUDGE -> "SMUDGE"
                     }
                     p.brushSize = drawView.getBrushSize()
@@ -298,13 +299,16 @@ class MainActivity : AppCompatActivity(),
 
                     drawView.setToolRadius(SmartDrawView.ToolMode.PAINTBRUSH, project.brushSizeBrush)
                     drawView.setToolRadius(SmartDrawView.ToolMode.PEN, project.brushSizePen)
+                    drawView.setToolRadius(SmartDrawView.ToolMode.ERASER, project.brushSizeEraser)
                     drawView.setToolRadius(SmartDrawView.ToolMode.SMUDGE, project.brushSizeSmudge)
                     drawView.setToolOpacity(SmartDrawView.ToolMode.PAINTBRUSH, project.brushOpacityBrush)
                     drawView.setToolOpacity(SmartDrawView.ToolMode.PEN, project.brushOpacityPen)
+                    drawView.setToolOpacity(SmartDrawView.ToolMode.ERASER, project.brushOpacityEraser)
                     drawView.setToolOpacity(SmartDrawView.ToolMode.SMUDGE, project.brushOpacitySmudge)
 
                     drawView.toolMode = when (project.activeTool) {
                         "SMUDGE" -> SmartDrawView.ToolMode.SMUDGE
+                        "ERASER" -> SmartDrawView.ToolMode.ERASER
                         "PEN" -> SmartDrawView.ToolMode.PEN
                         else -> SmartDrawView.ToolMode.PAINTBRUSH
                     }
@@ -443,6 +447,7 @@ class MainActivity : AppCompatActivity(),
         val name = when (toolMode) {
             SmartDrawView.ToolMode.PAINTBRUSH -> "Paintbrush"
             SmartDrawView.ToolMode.PEN -> "Pen"
+            SmartDrawView.ToolMode.ERASER -> "Eraser"
             SmartDrawView.ToolMode.SMUDGE -> "Smudge"
         }
         val sizeFormatted = if (size % 1.0f == 0f) "${size.toInt()} px" else "${String.format(Locale.US, "%.1f", size)} px"
@@ -454,6 +459,7 @@ class MainActivity : AppCompatActivity(),
         currentProject?.activeTool = when (toolMode) {
             SmartDrawView.ToolMode.PAINTBRUSH -> "PAINTBRUSH"
             SmartDrawView.ToolMode.PEN -> "PEN"
+            SmartDrawView.ToolMode.ERASER -> "ERASER"
             SmartDrawView.ToolMode.SMUDGE -> "SMUDGE"
         }
         currentProject?.brushSize = drawView.getBrushSize()
@@ -468,6 +474,7 @@ class MainActivity : AppCompatActivity(),
         when (drawView.toolMode) {
             SmartDrawView.ToolMode.PAINTBRUSH -> currentProject?.brushSizeBrush = radius
             SmartDrawView.ToolMode.PEN -> currentProject?.brushSizePen = radius
+            SmartDrawView.ToolMode.ERASER -> currentProject?.brushSizeEraser = radius
             SmartDrawView.ToolMode.SMUDGE -> currentProject?.brushSizeSmudge = radius
         }
         currentProject?.brushSize = radius
@@ -480,6 +487,7 @@ class MainActivity : AppCompatActivity(),
         when (drawView.toolMode) {
             SmartDrawView.ToolMode.PAINTBRUSH -> currentProject?.brushOpacityBrush = opacity
             SmartDrawView.ToolMode.PEN -> currentProject?.brushOpacityPen = opacity
+            SmartDrawView.ToolMode.ERASER -> currentProject?.brushOpacityEraser = opacity
             SmartDrawView.ToolMode.SMUDGE -> currentProject?.brushOpacitySmudge = opacity
         }
         currentProject?.brushOpacity = opacity
@@ -588,6 +596,10 @@ class MainActivity : AppCompatActivity(),
             SmartDrawView.ToolMode.PEN -> {
                 btnActiveTool.setImageResource(R.drawable.ic_pen)
                 btnActiveTool.contentDescription = "Active Tool: Pen (Tap for settings)"
+            }
+            SmartDrawView.ToolMode.ERASER -> {
+                btnActiveTool.setImageResource(R.drawable.ic_eraser)
+                btnActiveTool.contentDescription = "Active Tool: Eraser (Tap for settings)"
             }
             SmartDrawView.ToolMode.SMUDGE -> {
                 btnActiveTool.setImageResource(R.drawable.ic_smudge)

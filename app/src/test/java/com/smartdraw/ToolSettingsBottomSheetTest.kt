@@ -50,6 +50,7 @@ class ToolSettingsBottomSheetTest {
         val view = sheet.requireView()
         val cardBrush: LinearLayout = view.findViewById(R.id.cardToolBrush)
         val cardPen: LinearLayout = view.findViewById(R.id.cardToolPen)
+        val cardEraser: LinearLayout = view.findViewById(R.id.cardToolEraser)
         val cardSmudge: LinearLayout = view.findViewById(R.id.cardToolSmudge)
         val sectionTitle: TextView = view.findViewById(R.id.textSettingsSectionTitle)
 
@@ -60,6 +61,7 @@ class ToolSettingsBottomSheetTest {
 
         assertNotNull(cardBrush)
         assertNotNull(cardPen)
+        assertNotNull(cardEraser)
         assertNotNull(cardSmudge)
         assertNotNull(sliderSize)
         assertNotNull(sliderOpacity)
@@ -75,6 +77,12 @@ class ToolSettingsBottomSheetTest {
         assertEquals(SmartDrawView.ToolMode.PEN, selectedTool)
         assertEquals(SmartDrawView.ToolMode.PEN, sheet.currentTool)
         assertEquals("PEN SETTINGS", sectionTitle.text)
+
+        // Switch to Eraser
+        cardEraser.performClick()
+        assertEquals(SmartDrawView.ToolMode.ERASER, selectedTool)
+        assertEquals(SmartDrawView.ToolMode.ERASER, sheet.currentTool)
+        assertEquals("ERASER SETTINGS", sectionTitle.text)
 
         // Switch to Smudge
         cardSmudge.performClick()

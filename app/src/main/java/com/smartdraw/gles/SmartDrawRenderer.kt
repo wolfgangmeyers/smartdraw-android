@@ -379,6 +379,7 @@ class SmartDrawRenderer(
                     activeStrokeRadii.add(radius)
                 }
                 SmartDrawView.ToolMode.PAINTBRUSH,
+                SmartDrawView.ToolMode.ERASER,
                 SmartDrawView.ToolMode.SMUDGE -> {
                     stampRadius = radius
                     stampPressure = pt.pressure
@@ -518,6 +519,7 @@ class SmartDrawRenderer(
                         stampAlpha = baseSegAlpha
                     }
                     SmartDrawView.ToolMode.PAINTBRUSH,
+                    SmartDrawView.ToolMode.ERASER,
                     SmartDrawView.ToolMode.SMUDGE -> {
                         stampRadius = seg.radius
                         stampPressure = pt.pressure
@@ -620,6 +622,9 @@ class SmartDrawRenderer(
         if (maxR <= 0f) maxR = 20.0f
         val layerId = preStrokeLayerId ?: getActiveLayer().id
         recordSubRectDiff(layerId, points, maxR)
+        activeStrokePoints.clear()
+        activeStrokeRadii.clear()
+        activeStrokeSegments.clear()
     }
 
     fun canUndo(): Boolean = undoStack.isNotEmpty()
@@ -882,6 +887,132 @@ class SmartDrawRenderer(
             activeStrokeRadii.add(radius)
             smudgePoint(pt.x, pt.y, radius, blurStrength, opacity)
         }
+    }
+
+    fun erasePoint(
+        x: Float,
+        y: Float,
+        radius: Float,
+        opacity: Float = 1.0f,
+        pressure: Float = 1.0f
+    ) {
+        val pt = Point2D(x, y, pressure)
+        activeStrokePoints.add(pt)
+        activeStrokeRadii.add(radius)
+
+        baseFbo.bind()
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFuncSeparate(
+            GLES30.GL_ZERO,
+            GLES30.GL_ONE_MINUS_SRC_ALPHA,
+            GLES30.GL_ZERO,
+            GLES30.GL_ONE_MINUS_SRC_ALPHA
+        )
+
+        brushShader.renderStamp(
+            canvasWidth = width.toFloat(),
+            canvasHeight = height.toFloat(),
+            centerX = x,
+            centerY = y,
+            radius = radius,
+            colorR = 1.0f,
+            colorG = 1.0f,
+            colorB = 1.0f,
+            colorA = opacity,
+            pressure = pressure
+        )
+
+        GLES30.glDisable(GLES30.GL_BLEND)
+        baseFbo.unbind()
+    }
+
+    fun eraseLine(
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float,
+        radius: Float,
+        opacity: Float = 1.0f,
+        spacingRatio: Float = 0.2f
+    ) {
+        val dist = hypot(x2 - x1, y2 - y1)
+        val step = max(0.5f, radius * spacingRatio)
+        val steps = max(1, (dist / step).toInt())
+
+        baseFbo.bind()
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFuncSeparate(
+            GLES30.GL_ZERO,
+            GLES30.GL_ONE_MINUS_SRC_ALPHA,
+            GLES30.GL_ZERO,
+            GLES30.GL_ONE_MINUS_SRC_ALPHA
+        )
+
+        for (i in 0..steps) {
+            val t = i.toFloat() / steps.toFloat()
+            val x = x1 + t * (x2 - x1)
+            val y = y1 + t * (y2 - y1)
+            val pt = Point2D(x, y, 1.0f)
+            activeStrokePoints.add(pt)
+            activeStrokeRadii.add(radius)
+
+            brushShader.renderStamp(
+                canvasWidth = width.toFloat(),
+                canvasHeight = height.toFloat(),
+                centerX = x,
+                centerY = y,
+                radius = radius,
+                colorR = 1.0f,
+                colorG = 1.0f,
+                colorB = 1.0f,
+                colorA = opacity,
+                pressure = 1.0f
+            )
+        }
+
+        GLES30.glDisable(GLES30.GL_BLEND)
+        baseFbo.unbind()
+    }
+
+    fun eraseBezier(
+        curve: BezierCurve,
+        radius: Float,
+        opacity: Float = 1.0f,
+        spacingRatio: Float = 0.2f
+    ) {
+        val stepSize = max(0.5f, radius * spacingRatio)
+        val samples = curve.sampleUniform(stepSize)
+        if (samples.isEmpty()) return
+
+        baseFbo.bind()
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFuncSeparate(
+            GLES30.GL_ZERO,
+            GLES30.GL_ONE_MINUS_SRC_ALPHA,
+            GLES30.GL_ZERO,
+            GLES30.GL_ONE_MINUS_SRC_ALPHA
+        )
+
+        for (pt in samples) {
+            activeStrokePoints.add(pt)
+            activeStrokeRadii.add(radius)
+
+            brushShader.renderStamp(
+                canvasWidth = width.toFloat(),
+                canvasHeight = height.toFloat(),
+                centerX = pt.x,
+                centerY = pt.y,
+                radius = radius,
+                colorR = 1.0f,
+                colorG = 1.0f,
+                colorB = 1.0f,
+                colorA = opacity,
+                pressure = pt.pressure
+            )
+        }
+
+        GLES30.glDisable(GLES30.GL_BLEND)
+        baseFbo.unbind()
     }
 
     fun composite(

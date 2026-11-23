@@ -33,12 +33,15 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
 
     private lateinit var cardToolBrush: LinearLayout
     private lateinit var cardToolPen: LinearLayout
+    private lateinit var cardToolEraser: LinearLayout
     private lateinit var cardToolSmudge: LinearLayout
 
     private lateinit var iconBrush: ImageView
     private lateinit var textBrush: TextView
     private lateinit var iconPen: ImageView
     private lateinit var textPen: TextView
+    private lateinit var iconEraser: ImageView
+    private lateinit var textEraser: TextView
     private lateinit var iconSmudge: ImageView
     private lateinit var textSmudge: TextView
 
@@ -102,12 +105,15 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
 
         cardToolBrush = view.findViewById(R.id.cardToolBrush)
         cardToolPen = view.findViewById(R.id.cardToolPen)
+        cardToolEraser = view.findViewById(R.id.cardToolEraser)
         cardToolSmudge = view.findViewById(R.id.cardToolSmudge)
 
         iconBrush = view.findViewById(R.id.iconBrush)
         textBrush = view.findViewById(R.id.textBrush)
         iconPen = view.findViewById(R.id.iconPen)
         textPen = view.findViewById(R.id.textPen)
+        iconEraser = view.findViewById(R.id.iconEraser)
+        textEraser = view.findViewById(R.id.textEraser)
         iconSmudge = view.findViewById(R.id.iconSmudge)
         textSmudge = view.findViewById(R.id.textSmudge)
 
@@ -145,6 +151,12 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
         cardToolPen.setOnClickListener {
             if (currentTool != SmartDrawView.ToolMode.PEN) {
                 selectTool(SmartDrawView.ToolMode.PEN)
+            }
+        }
+
+        cardToolEraser.setOnClickListener {
+            if (currentTool != SmartDrawView.ToolMode.ERASER) {
+                selectTool(SmartDrawView.ToolMode.ERASER)
             }
         }
 
@@ -216,6 +228,10 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
         iconPen.setColorFilter(0xFFB0B0B0.toInt())
         textPen.setTextColor(0xFFB0B0B0.toInt())
 
+        cardToolEraser.setBackgroundResource(R.drawable.bg_tool_card_inactive)
+        iconEraser.setColorFilter(0xFFB0B0B0.toInt())
+        textEraser.setTextColor(0xFFB0B0B0.toInt())
+
         cardToolSmudge.setBackgroundResource(R.drawable.bg_tool_card_inactive)
         iconSmudge.setColorFilter(0xFFB0B0B0.toInt())
         textSmudge.setTextColor(0xFFB0B0B0.toInt())
@@ -232,6 +248,12 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
                 iconPen.setColorFilter(0xFF2979FF.toInt())
                 textPen.setTextColor(0xFFFFFFFF.toInt())
                 textSettingsSectionTitle.text = "PEN SETTINGS"
+            }
+            SmartDrawView.ToolMode.ERASER -> {
+                cardToolEraser.setBackgroundResource(R.drawable.bg_tool_card_active)
+                iconEraser.setColorFilter(0xFF2979FF.toInt())
+                textEraser.setTextColor(0xFFFFFFFF.toInt())
+                textSettingsSectionTitle.text = "ERASER SETTINGS"
             }
             SmartDrawView.ToolMode.SMUDGE -> {
                 cardToolSmudge.setBackgroundResource(R.drawable.bg_tool_card_active)
