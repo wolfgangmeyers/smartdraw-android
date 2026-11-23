@@ -32,9 +32,9 @@
             android:contentDescription="Active Tool &amp; Settings"
             android:scaleType="centerInside" />
 
-        <!-- b) Auto Color Toggle -->
+        <!-- b) Dedicated Color Button (Shows active color / auto color state) -->
         <ImageButton
-            android:id="@+id/btnAutoColor"
+            android:id="@+id/btnColorSettings"
             android:layout_width="44dp"
             android:layout_height="44dp"
             android:layout_marginStart="4dp"
@@ -42,10 +42,23 @@
             android:background="@drawable/bg_tool_button_active"
             android:src="@drawable/ic_auto_color"
             android:tint="#FFFFFF"
-            android:contentDescription="Auto Color Sampling"
+            android:contentDescription="Color Settings"
             android:scaleType="centerInside" />
 
-        <!-- c) Reset View (Fit / Target) -->
+        <!-- c) Dedicated Eyedropper Button (One-tap canvas color sampler) -->
+        <ImageButton
+            android:id="@+id/btnEyedropper"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/btn_icon_selector"
+            android:src="@drawable/ic_eyedropper"
+            android:tint="#B0B0B0"
+            android:contentDescription="Eyedropper Tool"
+            android:scaleType="centerInside" />
+
+        <!-- d) Reset View (Fit / Target) -->
         <ImageButton
             android:id="@+id/btnResetView"
             android:layout_width="44dp"

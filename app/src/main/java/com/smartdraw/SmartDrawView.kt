@@ -29,7 +29,15 @@ class SmartDrawView @JvmOverloads constructor(
     var currentProject: com.smartdraw.project.PaintingProject? = null
     var onBrushColorChanged: ((Int) -> Unit)? = null
     var onColorSampled: ((Int) -> Unit)? = null
+    var onEyedropperStateChanged: ((Boolean) -> Unit)? = null
+
     var isEyedropperActive: Boolean = false
+        set(value) {
+            if (field != value) {
+                field = value
+                onEyedropperStateChanged?.invoke(value)
+            }
+        }
 
     var brushColor: Int = Color.BLACK
         get() = currentProject?.manualBrushColor ?: field

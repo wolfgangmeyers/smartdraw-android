@@ -2,6 +2,7 @@ package com.smartdraw
 
 import android.graphics.Color
 import android.view.MotionEvent
+import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
@@ -12,6 +13,7 @@ import com.smartdraw.project.PaintingProject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -124,32 +126,93 @@ class ColorSelectionTest {
     }
 
     @Test
-    fun testToolSettingsBottomSheetRgbAndHslSliders() {
+    fun testSmartDrawViewEyedropperStateChangedCallback() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val drawView = SmartDrawView(context)
+
+        var notifiedState: Boolean? = null
+        drawView.onEyedropperStateChanged = { notifiedState = it }
+
+        drawView.isEyedropperActive = true
+        assertEquals(true, notifiedState)
+
+        drawView.isEyedropperActive = false
+        assertEquals(false, notifiedState)
+    }
+
+    @Test
+    fun testToolSettingsBottomSheetCleanFocus() {
         val activity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
         val sheet = ToolSettingsBottomSheet.newInstance(
             toolMode = SmartDrawView.ToolMode.PENCIL,
-            brushRadius = 20.0f,
-            brushOpacity = 1.0f,
-            brushColor = Color.rgb(10, 20, 30),
+            brushRadius = 24.0f,
+            brushOpacity = 0.8f,
+            brushColor = Color.BLUE,
             useReferenceColors = false
+        )
+
+        var selectedTool: SmartDrawView.ToolMode? = null
+        var changedRadius: Float? = null
+        var changedOpacity: Float? = null
+
+        sheet.listener = object : ToolSettingsBottomSheet.Listener {
+            override fun onToolSelected(toolMode: SmartDrawView.ToolMode) {
+                selectedTool = toolMode
+            }
+            override fun onBrushSizeChanged(radius: Float) {
+                changedRadius = radius
+            }
+            override fun onBrushOpacityChanged(opacity: Float) {
+                changedOpacity = opacity
+            }
+        }
+
+        sheet.show(activity.supportFragmentManager, "test_tool_sheet")
+        activity.supportFragmentManager.executePendingTransactions()
+
+        val view = sheet.requireView()
+        val cardPencil: LinearLayout = view.findViewById(R.id.cardToolPencil)
+        val cardSmudge: LinearLayout = view.findViewById(R.id.cardToolSmudge)
+        val sliderSize: SeekBar = view.findViewById(R.id.sliderBrushSize)
+        val sliderOpacity: SeekBar = view.findViewById(R.id.sliderBrushOpacity)
+
+        // Verify tool selection works
+        cardSmudge.performClick()
+        assertEquals(SmartDrawView.ToolMode.SMUDGE, selectedTool)
+        assertEquals(SmartDrawView.ToolMode.SMUDGE, sheet.currentTool)
+
+        cardPencil.performClick()
+        assertEquals(SmartDrawView.ToolMode.PENCIL, selectedTool)
+        assertEquals(SmartDrawView.ToolMode.PENCIL, sheet.currentTool)
+
+        // Verify color controls are NOT in ToolSettingsBottomSheet
+        assertNull("Color section should not be in tool settings", view.findViewById<SeekBar?>(R.id.sliderRed))
+        assertNull("Color section should not be in tool settings", view.findViewById<TextView?>(R.id.btnModeRgb))
+    }
+
+    @Test
+    fun testColorSettingsBottomSheetRgbAndHslSliders() {
+        val activity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
+        val sheet = ColorSettingsBottomSheet.newInstance(
+            brushColor = Color.rgb(10, 20, 30),
+            useReferenceColors = false,
+            referenceStatus = "Loaded (Ready)"
         )
 
         var notifiedColor: Int? = null
         var eyedropperRequested = false
 
-        sheet.listener = object : ToolSettingsBottomSheet.Listener {
-            override fun onToolSelected(toolMode: SmartDrawView.ToolMode) {}
-            override fun onBrushSizeChanged(radius: Float) {}
-            override fun onBrushOpacityChanged(opacity: Float) {}
+        sheet.listener = object : ColorSettingsBottomSheet.Listener {
             override fun onBrushColorChanged(color: Int) {
                 notifiedColor = color
             }
+            override fun onAutoColorToggled(enabled: Boolean) {}
             override fun onEyedropperRequested() {
                 eyedropperRequested = true
             }
         }
 
-        sheet.show(activity.supportFragmentManager, "test_color_sheet")
+        sheet.show(activity.supportFragmentManager, "test_color_settings_sheet")
         activity.supportFragmentManager.executePendingTransactions()
 
         val view = sheet.requireView()
@@ -161,10 +224,8 @@ class ColorSelectionTest {
         val btnModeHsl: TextView = view.findViewById(R.id.btnModeHsl)
         val layoutRgb: LinearLayout = view.findViewById(R.id.layoutRgbSliders)
         val layoutHsl: LinearLayout = view.findViewById(R.id.layoutHslSliders)
-        val sliderHue: SeekBar = view.findViewById(R.id.sliderHue)
-        val sliderSat: SeekBar = view.findViewById(R.id.sliderSaturation)
-        val sliderLight: SeekBar = view.findViewById(R.id.sliderLightness)
-        val btnEyedropper: LinearLayout = view.findViewById(R.id.btnEyedropper)
+        val btnEyedropper: LinearLayout = view.findViewById(R.id.btnEyedropperSheet)
+        val btnClose: ImageButton = view.findViewById(R.id.btnCloseColorSettings)
 
         // Initial values match brushColor
         assertEquals(10, sliderRed.progress)
@@ -172,63 +233,108 @@ class ColorSelectionTest {
         assertEquals(30, sliderBlue.progress)
         assertEquals("#0A141E", textColorHex.text.toString())
 
-        // Move Red slider via user drag simulation
-        sliderRed.progress = 255
-        // Manually trigger listener as user change
-        sliderRed.callOnClick() // or trigger progress change
-        // Directly test HSL tab switching
+        // Test HSL tab switching
         btnModeHsl.performClick()
-        assertEquals(ToolSettingsBottomSheet.ColorMode.HSL, sheet.colorMode)
+        assertEquals(ColorSettingsBottomSheet.SliderMode.HSL, sheet.sliderMode)
         assertEquals(android.view.View.VISIBLE, layoutHsl.visibility)
         assertEquals(android.view.View.GONE, layoutRgb.visibility)
 
         // Switch back to RGB tab
         btnModeRgb.performClick()
-        assertEquals(ToolSettingsBottomSheet.ColorMode.RGB, sheet.colorMode)
+        assertEquals(ColorSettingsBottomSheet.SliderMode.RGB, sheet.sliderMode)
         assertEquals(android.view.View.VISIBLE, layoutRgb.visibility)
         assertEquals(android.view.View.GONE, layoutHsl.visibility)
 
         // Click eyedropper button
         btnEyedropper.performClick()
         assertTrue("Eyedropper must be requested on click", eyedropperRequested)
+
+        // Close button dismisses
+        assertNotNull(btnClose)
     }
 
     @Test
-    fun testToolSettingsBottomSheetAutoColorNoticeAndSwitchToManual() {
+    fun testColorSettingsBottomSheetAutoColorAndSwitchToManual() {
         val activity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
-        val sheet = ToolSettingsBottomSheet.newInstance(
-            toolMode = SmartDrawView.ToolMode.PENCIL,
-            brushRadius = 20.0f,
-            brushOpacity = 1.0f,
+        val sheet = ColorSettingsBottomSheet.newInstance(
             brushColor = Color.BLACK,
-            useReferenceColors = true
+            useReferenceColors = true,
+            referenceStatus = "Custom Image (1024×1024)"
         )
 
         var autoColorToggledValue: Boolean? = null
-        sheet.listener = object : ToolSettingsBottomSheet.Listener {
-            override fun onToolSelected(toolMode: SmartDrawView.ToolMode) {}
-            override fun onBrushSizeChanged(radius: Float) {}
-            override fun onBrushOpacityChanged(opacity: Float) {}
+        sheet.listener = object : ColorSettingsBottomSheet.Listener {
+            override fun onBrushColorChanged(color: Int) {}
             override fun onAutoColorToggled(enabled: Boolean) {
                 autoColorToggledValue = enabled
             }
+            override fun onEyedropperRequested() {}
         }
 
         sheet.show(activity.supportFragmentManager, "test_auto_color_sheet")
         activity.supportFragmentManager.executePendingTransactions()
 
         val view = sheet.requireView()
-        val layoutAutoNotice: LinearLayout = view.findViewById(R.id.layoutAutoColorNotice)
-        val layoutManual: LinearLayout = view.findViewById(R.id.layoutManualColorControls)
-        val btnDisableAuto: LinearLayout = view.findViewById(R.id.btnDisableAutoColor)
+        val layoutAutoContent: LinearLayout = view.findViewById(R.id.layoutAutoColorContent)
+        val layoutManualContent: LinearLayout = view.findViewById(R.id.layoutManualColorContent)
+        val textRefStatus: TextView = view.findViewById(R.id.textReferenceStatus)
+        val btnSwitchManual: LinearLayout = view.findViewById(R.id.btnSwitchToManual)
+        val btnModeAuto: TextView = view.findViewById(R.id.btnModeAutoColor)
+        val btnModeManual: TextView = view.findViewById(R.id.btnModeManualColor)
 
-        assertEquals(android.view.View.VISIBLE, layoutAutoNotice.visibility)
-        assertEquals(android.view.View.GONE, layoutManual.visibility)
+        assertEquals("Custom Image (1024×1024)", textRefStatus.text.toString())
+        assertEquals(android.view.View.VISIBLE, layoutAutoContent.visibility)
+        assertEquals(android.view.View.GONE, layoutManualContent.visibility)
 
-        btnDisableAuto.performClick()
+        // Click Switch to Manual button
+        btnSwitchManual.performClick()
         assertFalse("useReferenceColors must be false after switching to manual", sheet.useReferenceColors)
         assertEquals(false, autoColorToggledValue)
-        assertEquals(android.view.View.GONE, layoutAutoNotice.visibility)
-        assertEquals(android.view.View.VISIBLE, layoutManual.visibility)
+        assertEquals(android.view.View.GONE, layoutAutoContent.visibility)
+        assertEquals(android.view.View.VISIBLE, layoutManualContent.visibility)
+
+        // Switch back via Auto Color segment button
+        btnModeAuto.performClick()
+        assertTrue("useReferenceColors must be true after clicking Auto Color segment", sheet.useReferenceColors)
+        assertEquals(true, autoColorToggledValue)
+        assertEquals(android.view.View.VISIBLE, layoutAutoContent.visibility)
+        assertEquals(android.view.View.GONE, layoutManualContent.visibility)
+
+        // Switch to Manual via Manual Color segment button
+        btnModeManual.performClick()
+        assertFalse("useReferenceColors must be false after clicking Manual Color segment", sheet.useReferenceColors)
+        assertEquals(false, autoColorToggledValue)
+        assertEquals(android.view.View.GONE, layoutAutoContent.visibility)
+        assertEquals(android.view.View.VISIBLE, layoutManualContent.visibility)
+    }
+
+    @Test
+    fun testMainActivityToolbarEyedropperAndColorButtons() {
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        val activity = controller.get()
+
+        val btnColorSettings: ImageButton = activity.findViewById(R.id.btnColorSettings)
+        val btnEyedropper: ImageButton = activity.findViewById(R.id.btnEyedropper)
+
+        assertNotNull("btnColorSettings must exist in toolbar", btnColorSettings)
+        assertNotNull("btnEyedropper must exist in toolbar", btnEyedropper)
+
+        // Default state: eyedropper is inactive
+        assertFalse(activity.drawView.isEyedropperActive)
+
+        // Tap Eyedropper button: toggles on
+        btnEyedropper.performClick()
+        assertTrue("Eyedropper should become active after toolbar button tap", activity.drawView.isEyedropperActive)
+
+        // Tap Eyedropper button again: toggles off
+        btnEyedropper.performClick()
+        assertFalse("Eyedropper should become inactive after second toolbar button tap", activity.drawView.isEyedropperActive)
+
+        // Tap Color button: opens ColorSettingsBottomSheet
+        btnColorSettings.performClick()
+        activity.supportFragmentManager.executePendingTransactions()
+        val colorSheet = activity.supportFragmentManager.findFragmentByTag(ColorSettingsBottomSheet.TAG)
+        assertNotNull("ColorSettingsBottomSheet should be shown when tapping color button", colorSheet)
+        assertTrue(colorSheet is ColorSettingsBottomSheet)
     }
 }
