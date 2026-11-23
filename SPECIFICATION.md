@@ -1170,4 +1170,75 @@ Activated by tapping the layers icon (`btnLayers`) in the top toolbar, this bott
    - **Visibility Toggle**: Eye icon (`ic_visibility` when visible, `ic_visibility_off` with dimmed `#757575` tint when hidden). Toggling updates the compositing pass instantly without destroying drawing contents.
    - **Opacity Slider**: Integrated $0-100\%$ `SeekBar` with live percentage readout, modulating the layer quad's alpha in real time.
 
+---
+
+## 14. Undo / Redo with Minimal Bounding Square Sub-Rect Diffs
+
+SmartDraw Android implements a multi-level, memory-efficient Undo / Redo system. Rather than duplicating full megapixel canvas textures (which would exhaust GPU and heap memory on large canvases such as $4096 \times 4096$), the engine captures only the minimal square bounding sub-rectangle affected by each individual stroke or smudge operation.
+
+### 14.1 SubRectDiff Architecture
+
+Each undoable operation is captured as a discrete `SubRectDiff`:
+
+```kotlin
+data class SubRectDiff(
+    val layerId: String,
+    val x: Int,
+    val y: Int,
+    val width: Int,
+    val height: Int,
+    val beforePixels: IntArray,
+    val afterPixels: IntArray
+)
+```
+
+- **`layerId`**: Identifier of the target canvas layer where the drawing operation occurred.
+- **`x`, `y`**: Canvas-space coordinates of the top-left corner of the affected bounding box.
+- **`width`, `height`**: Dimensions of the affected sub-rectangle (in pixels).
+- **`beforePixels`**: Row-major packed 32-bit ARGB pixels of size $\text{width} \times \text{height}$ capturing the layer's pixels immediately prior to the stroke.
+- **`afterPixels`**: Row-major packed 32-bit ARGB pixels of size $\text{width} \times \text{height}$ capturing the layer's pixels immediately after the stroke is permanently committed.
+
+### 14.2 Minimal Bounding Square Calculation
+
+When a stylus stroke or smudge begins (`onStrokeStart`):
+1. A pre-stroke capture of the target layer's pixels is initiated (`beginStrokeCapture()`).
+2. Point cloud tracking records every coordinate $(x_i, y_i)$ and dynamic radius $R_i$.
+3. When the stroke finishes (`onStrokeEnd`), the bounding box is computed over all stroke points and maximum radius:
+
+```kotlin
+val minX = points.minOf { it.x - maxRadius }.toInt().coerceIn(0, width - 1)
+val maxX = points.maxOf { it.x + maxRadius }.toInt().coerceIn(0, width - 1)
+val minY = points.minOf { it.y - maxRadius }.toInt().coerceIn(0, height - 1)
+val maxY = points.maxOf { it.y + maxRadius }.toInt().coerceIn(0, height - 1)
+
+// Expand to square:
+val side = maxOf(maxX - minX + 1, maxY - minY + 1)
+val boxW = minOf(side, width - minX)
+val boxH = minOf(side, height - minY)
+```
+
+4. The engine reads `afterPixels` over $(minX, minY, boxW, boxH)$ on the target layer's FBO, extracts the matching sub-rectangle from `beforePixels`, and packages them into `SubRectDiff`.
+
+### 14.3 Stack Invariants & Memory Bounds
+
+- **Undo Stack (`undoStack`)**: Holds up to 30 sequential `SubRectDiff` operations (configurable via `maxUndoHistory = 30`). When the stack exceeds 30 items, the oldest diff is dropped from the bottom of the deque.
+- **Redo Stack (`redoStack`)**: Stores diffs that have been undone. Any newly committed stroke automatically clears the `redoStack`.
+- **Canvas Resizing & Layer Reset (`clearHistory()`)**: When loading a new project, clearing the canvas, or resizing dimensions, both stacks are purged.
+- **Sub-Rect Texture Blit (`GlesFbo.loadSubRect`)**: Undoing or redoing uploads only the $(boxW \times boxH)$ pixels into the target layer texture using `glTexSubImage2D`, ensuring near-instantaneous restoration without allocating or reallocating FBO textures.
+
+### 14.4 Toolbar Action Integration
+
+- **Toolbar Buttons**:
+  - `btnUndo` (icon: `ic_undo.xml`, description: "Undo")
+  - `btnRedo` (icon: `ic_redo.xml`, description: "Redo")
+- **Dynamic Visual State**:
+  - When active (`canUndo` or `canRedo` is true): `alpha = 1.0f`, `isEnabled = true`, `isClickable = true`.
+  - When inactive (`canUndo` or `canRedo` is false): `alpha = 0.35f`, `isEnabled = false`, `isClickable = false`.
+- **Click Actions**:
+  - `btnUndo.setOnClickListener { drawView.undo() }`
+  - `btnRedo.setOnClickListener { drawView.redo() }`
+- **Callback Hook**: `SmartDrawView.onHistoryStateChanged: ((canUndo: Boolean, canRedo: Boolean) -> Unit)?` notifies the UI immediately when stack availability changes.
+
+---
+
 

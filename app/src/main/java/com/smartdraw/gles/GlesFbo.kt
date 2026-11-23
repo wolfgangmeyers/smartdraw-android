@@ -106,6 +106,54 @@ class GlesFbo(val width: Int, val height: Int) {
         return outPixels
     }
 
+    /**
+     * Loads a sub-rectangle of ARGB pixels with top-left origin into this FBO's texture.
+     * x and y are in top-left canvas coordinates [0, width), [0, height).
+     */
+    fun loadSubRect(x: Int, y: Int, w: Int, h: Int, pixels: IntArray) {
+        if (w <= 0 || h <= 0 || pixels.size < w * h) return
+
+        val glX = x.coerceIn(0, width - 1)
+        val glY = (height - (y + h)).coerceIn(0, height - 1)
+        val writeW = w.coerceAtMost(width - glX)
+        val writeH = h.coerceAtMost(height - glY)
+
+        val buffer = ByteBuffer.allocateDirect(writeW * writeH * 4).order(ByteOrder.nativeOrder())
+        val intBuf = buffer.asIntBuffer()
+        val temp = IntArray(writeW * writeH)
+
+        // Convert canvas ARGB top-down to GLES RGBA bottom-up
+        for (row in 0 until writeH) {
+            val srcRow = (writeH - 1 - row) * w
+            val dstRow = row * writeW
+            for (col in 0 until writeW) {
+                val argb = pixels[srcRow + col]
+                val a = (argb shr 24) and 0xFF
+                val r = (argb shr 16) and 0xFF
+                val g = (argb shr 8) and 0xFF
+                val b = argb and 0xFF
+                // Little-endian int: byte 0 = R, byte 1 = G, byte 2 = B, byte 3 = A
+                temp[dstRow + col] = (a shl 24) or (b shl 16) or (g shl 8) or r
+            }
+        }
+        intBuf.put(temp)
+        buffer.rewind()
+
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+        GLES30.glTexSubImage2D(
+            GLES30.GL_TEXTURE_2D,
+            0,
+            glX,
+            glY,
+            writeW,
+            writeH,
+            GLES30.GL_RGBA,
+            GLES30.GL_UNSIGNED_BYTE,
+            buffer
+        )
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+    }
+
     fun readBitmap(): Bitmap {
         bind()
         val buffer = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())

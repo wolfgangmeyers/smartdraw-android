@@ -62,6 +62,8 @@ class MainActivity : AppCompatActivity(),
     private lateinit var btnEyedropper: ImageButton
     private lateinit var btnResetView: ImageButton
     private lateinit var btnLayers: ImageButton
+    lateinit var btnUndo: ImageButton
+    lateinit var btnRedo: ImageButton
     private lateinit var btnGallery: ImageButton
     private lateinit var btnMoreOptions: ImageButton
     private lateinit var statusText: TextView
@@ -90,6 +92,8 @@ class MainActivity : AppCompatActivity(),
         btnEyedropper = findViewById(R.id.btnEyedropper)
         btnResetView = findViewById(R.id.btnResetView)
         btnLayers = findViewById(R.id.btnLayers)
+        btnUndo = findViewById(R.id.btnUndo)
+        btnRedo = findViewById(R.id.btnRedo)
         btnGallery = findViewById(R.id.btnGallery)
         btnMoreOptions = findViewById(R.id.btnMoreOptions)
         statusText = findViewById(R.id.statusText)
@@ -139,6 +143,10 @@ class MainActivity : AppCompatActivity(),
 
         drawView.onStrokeCompleted = {
             autoSaveManager.markDirty()
+        }
+
+        drawView.onHistoryStateChanged = { canUndo, canRedo ->
+            updateHistoryUI(canUndo, canRedo)
         }
 
         drawView.onLayersChanged = {
@@ -205,6 +213,14 @@ class MainActivity : AppCompatActivity(),
             LayerManagerBottomSheet.newInstance().show(supportFragmentManager, "LayerManagerBottomSheet")
         }
 
+        btnUndo.setOnClickListener {
+            drawView.undo()
+        }
+
+        btnRedo.setOnClickListener {
+            drawView.redo()
+        }
+
         btnGallery.setOnClickListener {
             openGallery()
         }
@@ -216,8 +232,7 @@ class MainActivity : AppCompatActivity(),
         updateActiveToolUI()
         updateColorUI()
         updateEyedropperUI()
-
-        updateActiveToolUI()
+        updateHistoryUI(drawView.canUndo(), drawView.canRedo())
 
         // Session Restoration / Cold Start
         restoreOrInitializeSession()
@@ -632,6 +647,16 @@ class MainActivity : AppCompatActivity(),
             btnEyedropper.setBackgroundResource(R.drawable.btn_icon_selector)
             btnEyedropper.setColorFilter(0xFFB0B0B0.toInt())
         }
+    }
+
+    fun updateHistoryUI(canUndo: Boolean, canRedo: Boolean) {
+        btnUndo.isEnabled = canUndo
+        btnUndo.isClickable = canUndo
+        btnUndo.alpha = if (canUndo) 1.0f else 0.35f
+
+        btnRedo.isEnabled = canRedo
+        btnRedo.isClickable = canRedo
+        btnRedo.alpha = if (canRedo) 1.0f else 0.35f
     }
 
     private fun setButtonsEnabled(enabled: Boolean) {

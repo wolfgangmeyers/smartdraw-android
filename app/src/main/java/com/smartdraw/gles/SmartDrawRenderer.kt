@@ -34,6 +34,14 @@ class SmartDrawRenderer(
 
     val referenceLayer = ReferenceLayer()
 
+    val undoStack = ArrayDeque<SubRectDiff>()
+    val redoStack = ArrayDeque<SubRectDiff>()
+    val maxUndoHistory = 30
+
+    // Full snapshot of baseFbo taken when stroke/smudge starts
+    private var preStrokeFullPixels: IntArray? = null
+    private var preStrokeLayerId: String? = null
+
     private val brushShader = CircleBrushShader()
     private val smudgeShader = SmudgeShader()
     private val compositingShader = CompositingShader()
@@ -102,11 +110,13 @@ class SmartDrawRenderer(
         scratchFbo.unbind()
 
         clearActiveStroke()
+        clearHistory()
     }
 
     fun clearCanvas(r: Float = 1.0f, g: Float = 1.0f, b: Float = 1.0f, a: Float = 1.0f) {
         solidBackgroundColor = floatArrayOf(r, g, b, a)
         clear(0.0f, 0.0f, 0.0f, 0.0f)
+        clearHistory()
     }
 
     /**
@@ -293,15 +303,26 @@ class SmartDrawRenderer(
         activeStrokeFbo = GlesFbo(width, height)
 
         clear(0.0f, 0.0f, 0.0f, 0.0f)
+        clearHistory()
     }
 
     fun loadBaseBitmap(bitmap: Bitmap) {
         val active = getActiveLayer()
         active.fbo.loadBitmap(bitmap)
         blitFbo(active.fbo, scratchFbo)
+        clearHistory()
+    }
+
+    fun beginStrokeCapture() {
+        val active = getActiveLayer()
+        preStrokeLayerId = active.id
+        preStrokeFullPixels = active.fbo.readSubRect(0, 0, width, height)
     }
 
     fun beginActiveStroke(previewColor: Int) {
+        if (preStrokeFullPixels == null) {
+            beginStrokeCapture()
+        }
         activeStrokePoints.clear()
         activeStrokeRadii.clear()
         activeStrokeSegments.clear()
@@ -522,10 +543,112 @@ class SmartDrawRenderer(
         GLES30.glDisable(GLES30.GL_BLEND)
         baseFbo.unbind()
 
-        // 4. Clear active stroke buffer now that baseFbo has received the permanent stroke
+        // 4. Commit undo diff
+        commitUndoDiff()
+
+        // 5. Clear active stroke buffer now that baseFbo has received the permanent stroke
         clearActiveStroke()
 
         return true
+    }
+
+    fun recordSubRectDiff(
+        layerId: String,
+        points: List<Point2D>,
+        maxRadius: Float
+    ) {
+        val prePixels = preStrokeFullPixels
+        val preId = preStrokeLayerId
+        preStrokeFullPixels = null
+        preStrokeLayerId = null
+
+        if (points.isEmpty() || maxRadius <= 0f) return
+
+        val minX = points.minOf { it.x - maxRadius }.toInt().coerceIn(0, width - 1)
+        val maxX = points.maxOf { it.x + maxRadius }.toInt().coerceIn(0, width - 1)
+        val minY = points.minOf { it.y - maxRadius }.toInt().coerceIn(0, height - 1)
+        val maxY = points.maxOf { it.y + maxRadius }.toInt().coerceIn(0, height - 1)
+
+        val side = maxOf(maxX - minX + 1, maxY - minY + 1)
+        val boxW = minOf(side, width - minX)
+        val boxH = minOf(side, height - minY)
+
+        if (boxW <= 0 || boxH <= 0) return
+
+        val targetLayer = layers.find { it.id == layerId } ?: getActiveLayer()
+        val afterPixels = targetLayer.fbo.readSubRect(minX, minY, boxW, boxH)
+
+        val beforePixels = if (prePixels != null && preId == targetLayer.id && prePixels.size == width * height) {
+            val sub = IntArray(boxW * boxH)
+            for (r in 0 until boxH) {
+                val srcRow = (minY + r) * width + minX
+                val dstRow = r * boxW
+                System.arraycopy(prePixels, srcRow, sub, dstRow, boxW)
+            }
+            sub
+        } else {
+            // Fallback if full snapshot was not available
+            targetLayer.fbo.readSubRect(minX, minY, boxW, boxH)
+        }
+
+        val diff = SubRectDiff(
+            layerId = targetLayer.id,
+            x = minX,
+            y = minY,
+            width = boxW,
+            height = boxH,
+            beforePixels = beforePixels,
+            afterPixels = afterPixels
+        )
+
+        undoStack.addLast(diff)
+        while (undoStack.size > maxUndoHistory) {
+            undoStack.removeFirst()
+        }
+        redoStack.clear()
+    }
+
+    fun commitUndoDiff() {
+        val points = ArrayList(activeStrokePoints)
+        var maxR = 0f
+        for (r in activeStrokeRadii) {
+            if (r > maxR) maxR = r
+        }
+        for (seg in activeStrokeSegments) {
+            if (seg.radius > maxR) maxR = seg.radius
+        }
+        if (maxR <= 0f) maxR = 20.0f
+        val layerId = preStrokeLayerId ?: getActiveLayer().id
+        recordSubRectDiff(layerId, points, maxR)
+    }
+
+    fun canUndo(): Boolean = undoStack.isNotEmpty()
+
+    fun canRedo(): Boolean = redoStack.isNotEmpty()
+
+    fun undo(): Boolean {
+        if (undoStack.isEmpty()) return false
+        val diff = undoStack.removeLast()
+        val targetLayer = layers.find { it.id == diff.layerId } ?: getActiveLayer()
+        targetLayer.fbo.loadSubRect(diff.x, diff.y, diff.width, diff.height, diff.beforePixels)
+        redoStack.addLast(diff)
+        return true
+    }
+
+    fun redo(): Boolean {
+        if (redoStack.isEmpty()) return false
+        val diff = redoStack.removeLast()
+        val targetLayer = layers.find { it.id == diff.layerId } ?: getActiveLayer()
+        targetLayer.fbo.loadSubRect(diff.x, diff.y, diff.width, diff.height, diff.afterPixels)
+        undoStack.addLast(diff)
+        return true
+    }
+
+    fun clearHistory() {
+        undoStack.clear()
+        redoStack.clear()
+        preStrokeFullPixels = null
+        preStrokeLayerId = null
     }
 
     fun clearActiveStroke() {
@@ -755,6 +878,8 @@ class SmartDrawRenderer(
         val stepSize = max(0.5f, radius * spacingRatio)
         val samples = curve.sampleUniform(stepSize)
         for (pt in samples) {
+            activeStrokePoints.add(pt)
+            activeStrokeRadii.add(radius)
             smudgePoint(pt.x, pt.y, radius, blurStrength, opacity)
         }
     }

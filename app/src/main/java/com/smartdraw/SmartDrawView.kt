@@ -188,6 +188,20 @@ class SmartDrawView @JvmOverloads constructor(
     })
 
     var onStrokeCompleted: (() -> Unit)? = null
+    var onHistoryStateChanged: ((canUndo: Boolean, canRedo: Boolean) -> Unit)? = null
+
+    private var cachedCanUndo: Boolean = false
+    private var cachedCanRedo: Boolean = false
+
+    private fun updateHistoryState(canUndo: Boolean, canRedo: Boolean) {
+        if (cachedCanUndo != canUndo || cachedCanRedo != canRedo) {
+            cachedCanUndo = canUndo
+            cachedCanRedo = canRedo
+            post {
+                onHistoryStateChanged?.invoke(canUndo, canRedo)
+            }
+        }
+    }
 
     init {
         touchHandler = TouchInputHandler(
@@ -215,6 +229,7 @@ class SmartDrawView @JvmOverloads constructor(
                 activeStrokeStartColor = preview
                 queueEvent {
                     val r = rendererInstance ?: return@queueEvent
+                    r.beginStrokeCapture()
                     if (toolMode != ToolMode.SMUDGE) {
                         r.beginActiveStroke(preview)
                     }
@@ -261,7 +276,12 @@ class SmartDrawView @JvmOverloads constructor(
                             defaultColor = brushColor,
                             spacingRatio = 0.2f
                         )
+                    } else {
+                        r.commitUndoDiff()
                     }
+                    val canUndo = r.canUndo()
+                    val canRedo = r.canRedo()
+                    updateHistoryState(canUndo, canRedo)
                     requestRender()
                     if (committed) {
                         post { onStrokeCompleted?.invoke() }
@@ -484,7 +504,49 @@ class SmartDrawView @JvmOverloads constructor(
     fun clearCanvas() {
         queueEvent {
             rendererInstance?.clearCanvas(1.0f, 1.0f, 1.0f, 1.0f)
+            val canU = rendererInstance?.canUndo() ?: false
+            val canR = rendererInstance?.canRedo() ?: false
+            updateHistoryState(canU, canR)
             requestRender()
+        }
+    }
+
+    fun undo() {
+        queueEvent {
+            val r = rendererInstance ?: return@queueEvent
+            val changed = r.undo()
+            val canU = r.canUndo()
+            val canR = r.canRedo()
+            updateHistoryState(canU, canR)
+            if (changed) {
+                requestRender()
+                post { onStrokeCompleted?.invoke() }
+            }
+        }
+    }
+
+    fun redo() {
+        queueEvent {
+            val r = rendererInstance ?: return@queueEvent
+            val changed = r.redo()
+            val canU = r.canUndo()
+            val canR = r.canRedo()
+            updateHistoryState(canU, canR)
+            if (changed) {
+                requestRender()
+                post { onStrokeCompleted?.invoke() }
+            }
+        }
+    }
+
+    fun canUndo(): Boolean = cachedCanUndo
+
+    fun canRedo(): Boolean = cachedCanRedo
+
+    fun clearHistory() {
+        queueEvent {
+            rendererInstance?.clearHistory()
+            updateHistoryState(false, false)
         }
     }
 
@@ -731,6 +793,7 @@ class SmartDrawView @JvmOverloads constructor(
         if (rendererInstance != null) {
             queueEvent {
                 rendererInstance?.resizeCanvas(width, height)
+                updateHistoryState(false, false)
                 requestRender()
             }
         }
@@ -975,10 +1038,12 @@ class SmartDrawView @JvmOverloads constructor(
             queueEvent {
                 rendererInstance?.loadBaseBitmap(bitmap)
                 bitmap.recycle()
+                updateHistoryState(false, false)
                 requestRender()
             }
         } else {
             pendingBaseBitmap = bitmap
+            updateHistoryState(false, false)
         }
     }
 
