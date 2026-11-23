@@ -5,6 +5,24 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
+/**
+ * Ratchet Mode (Distance-Monotonic Guided Painting) Evaluator.
+ *
+ * Enforces the Ratchet Invariant:
+ * Every committed human or automated stroke must monotonically preserve or reduce the distance
+ * between the canvas painting and the underlying reference image:
+ *   Loss(P', I_ref) <= Loss(P, I_ref)
+ * where P is the pristine base canvas, P' is the candidate canvas with the active stroke applied,
+ * and I_ref is the reference image.
+ *
+ * To guarantee instant real-time performance without GPU stalls:
+ * 1. The spatial bounding box Omega_S enclosing the stroke path + brush radius is determined.
+ * 2. Only the sub-rectangle pixels are read from baseFbo.
+ * 3. The candidate stroke is rasterized in software onto a local copy of the sub-rectangle.
+ * 4. The L1 Manhattan color distance (sum of absolute RGB differences) against reference pixels
+ *    is evaluated before and after the candidate stroke.
+ * 5. If loss increases, the stroke is rolled back at zero GPU cost by discarding activeStrokeFbo.
+ */
 object RatchetEvaluator {
 
     data class BoundingBox(
@@ -18,7 +36,8 @@ object RatchetEvaluator {
     }
 
     /**
-     * Compute bounding box for active stroke points and segments clamped to canvas boundaries.
+     * Compute canvas-clamped spatial bounding box Omega_S enclosing all active stroke points,
+     * Bezier segments, and brush radii with antialiasing padding.
      */
     fun computeBoundingBox(
         points: List<Point2D>,
@@ -54,6 +73,8 @@ object RatchetEvaluator {
 
     /**
      * Simulate rendering stroke segments onto sub-rect pixels using software disc stamps.
+     * Evaluates antialiased circular disc stamps with pressure modulation, reproducing the
+     * GLES CircleBrushShader alpha blending onto the candidate sub-rect buffer without GPU round-trips.
      */
     fun simulateStrokeOnSubRect(
         subRectPixels: IntArray,
@@ -119,9 +140,14 @@ object RatchetEvaluator {
     }
 
     /**
-     * Evaluates whether the candidate pixels reduce or preserve loss compared to base pixels
-     * relative to reference image pixels over the bounding box.
-     * Returns true if lossAfter <= lossBefore (keep stroke), false otherwise (discard stroke).
+     * Evaluates whether candidate pixels reduce or preserve color loss compared to base pixels
+     * relative to reference image pixels over the bounding box Omega_S.
+     *
+     * Uses L1 Manhattan color channel distance:
+     *   Loss = sum(|R - R_ref| + |G - G_ref| + |B - B_ref|)
+     *
+     * Returns true if lossAfter <= lossBefore (commit stroke to base canvas),
+     * or false if lossAfter > lossBefore (retrograde stroke; discard activeStrokeFbo).
      */
     fun evaluateSimilarity(
         basePixels: IntArray,

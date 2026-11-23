@@ -6,6 +6,18 @@ import com.smartdraw.core.Point2D
 import com.smartdraw.core.StrokeSmoother
 import kotlin.math.pow
 
+/**
+ * Touch and Stylus Input Handler with Hardware Palm Rejection.
+ *
+ * Enforces Pen-Only Drawing:
+ * - Paint strokes, smudge strokes, and Bezier curves strictly require MotionEvent pointer tool type
+ *   TOOL_TYPE_STYLUS or TOOL_TYPE_ERASER.
+ * - Single-finger touches, resting palms, or wrist contacts (TOOL_TYPE_FINGER) are rejected and ignored,
+ *   preventing accidental stray marks. Finger gestures are reserved exclusively for two-finger
+ *   viewport navigation (pan, pinch-to-zoom, and rotation) in SmartDrawView.
+ * - Locks activeStylusPointerId during a stroke so simultaneous multi-touch palm contacts do not
+ *   perturb stroke tracking or coordinate inversion.
+ */
 class TouchInputHandler(
     var baseRadius: Float = 20.0f,
     var baseOpacity: Float = 1.0f,

@@ -72,6 +72,11 @@ class SmartDrawView @JvmOverloads constructor(
     private var surfaceWidth = 1024
     private var surfaceHeight = 1024
 
+    // Pending GL Lifecycle Queue:
+    // When bitmap or layer settings are loaded before the GL surface is initialized
+    // (e.g. cold start restoration in Activity.onCreate() before onSurfaceCreated() fires),
+    // rendererInstance is null. These pending fields stage data on the main thread and are
+    // drained and uploaded to GPU textures inside onSurfaceCreated() on the dedicated GL render thread.
     private var pendingBaseBitmap: Bitmap? = null
     private var pendingReferenceBitmap: Bitmap? = null
     private var pendingReferenceOpacity: Float? = null
@@ -224,6 +229,7 @@ class SmartDrawView @JvmOverloads constructor(
         renderer.isRatchetEnabled = isRatchetEnabled
         rendererInstance = renderer
 
+        // Drain pending GL lifecycle queue: upload staged bitmaps and layer parameters
         val baseBmp = pendingBaseBitmap
         if (baseBmp != null && !baseBmp.isRecycled) {
             renderer.loadBaseBitmap(baseBmp)
@@ -277,16 +283,20 @@ class SmartDrawView @JvmOverloads constructor(
     }
 
     /**
-     * Map screen coordinates to intrinsic canvas space:
-     * Screen = T + R(theta) * (S * Canvas)
-     * Canvas = (1 / S) * R(-theta) * (Screen - T)
+     * Map screen coordinates to intrinsic canvas space via exact inverse 2D affine transform:
+     * Forward Transform:
+     *   Screen = T + R(theta) * (S * Canvas)
      *
-     * Let dx = screenX - T_x, dy = screenY - T_y
-     * Rotate (dx, dy) by -theta:
-     * rx = dx * cos(-theta) - dy * sin(-theta) = dx * cos(theta) + dy * sin(theta)
-     * ry = dx * sin(-theta) + dy * cos(-theta) = -dx * sin(theta) + dy * cos(theta)
-     * x_c = rx / S
-     * y_c = ry / S
+     * Inverse Transform:
+     *   Canvas = (1 / S) * R(-theta) * (Screen - T)
+     *
+     * Expanding with dx = screenX - T_x, dy = screenY - T_y and 2D rotation matrix R(-theta):
+     *   [cx] = (1 / S) * [ cos(theta)   sin(theta)] [dx]
+     *   [cy]   (1 / S) * [-sin(theta)   cos(theta)] [dy]
+     *
+     * Result:
+     *   x_c = (dx * cos(theta) + dy * sin(theta)) / S
+     *   y_c = (-dx * sin(theta) + dy * cos(theta)) / S
      */
     fun screenToCanvas(screenX: Float, screenY: Float): Pair<Float, Float> {
         val s = if (viewportScale != 0f) viewportScale else 1.0f
@@ -305,8 +315,17 @@ class SmartDrawView @JvmOverloads constructor(
     }
 
     /**
-     * Map intrinsic canvas coordinates to screen space:
-     * Screen = T + R(theta) * (S * Canvas)
+     * Map intrinsic canvas coordinates to screen space via forward 2D affine transform:
+     *   Screen = T + R(theta) * (S * Canvas)
+     *
+     * Let [sx, sy] = S * [canvasX, canvasY]
+     * Apply 2D rotation matrix R(theta):
+     *   rx = sx * cos(theta) - sy * sin(theta)
+     *   ry = sx * sin(theta) + sy * cos(theta)
+     *
+     * Apply translation:
+     *   screenX = rx + T_x
+     *   screenY = ry + T_y
      */
     fun canvasToScreen(canvasX: Float, canvasY: Float): Pair<Float, Float> {
         val s = viewportScale
@@ -518,8 +537,9 @@ class SmartDrawView @JvmOverloads constructor(
                             while (deltaAngle > Math.PI.toFloat()) deltaAngle -= (2 * Math.PI).toFloat()
                             while (deltaAngle <= -Math.PI.toFloat()) deltaAngle += (2 * Math.PI).toFloat()
 
-                            // Focal-anchored affine update:
-                            // T_new = F_curr + R(deltaTheta) * (s * (T_prev - F_prev))
+                            // Two-Finger Midpoint-Pivoted Affine Gesture Update:
+                            // To rotate and zoom about the dynamic gesture focal point F without canvas drift:
+                            // T_new = F_curr + R(deltaTheta) * (s_actual * (T_prev - F_prev))
                             val dx = viewportTranslationX - prevFocalX
                             val dy = viewportTranslationY - prevFocalY
 

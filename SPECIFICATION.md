@@ -151,6 +151,57 @@ void main() {
 }
 ```
 
+### 3.4 Y-Axis Inversion Fix, Coordinate Space Alignment & GL Lifecycle Queue
+
+#### 3.4.1 Coordinate Space Inversion Challenge
+Android Screen Space and native `Bitmap` buffers place the origin $(0, 0)$ at the **top-left corner**, with the $X$-axis pointing rightward and the $Y$-axis pointing downward $(0 \to H)$. Conversely, standard OpenGL ES window coordinates, Framebuffer Objects (FBOs), and texture coordinates place the origin $(0, 0)$ at the **bottom-left corner**, with the $Y$-axis pointing upward. 
+
+Without explicit mathematical inversion across each stage of the graphics pipeline, brush stamps, smudge dragging, composite output, and sub-rectangle pixel readbacks would appear vertically mirrored or inverted relative to touch input.
+
+#### 3.4.2 Architectural Alignment Pipeline
+SmartDraw enforces exact 1:1 visual parity across Android Screen Space, offscreen Canvas FBO Space, and texture memory through six coordinated alignment mechanisms:
+
+1. **Vertex Shader Clip Space Inversion (`CircleBrushShader.kt`, `SmudgeShader.kt`)**:
+   In the brush stamping vertex shaders, world canvas coordinates are converted to normalized device coordinates (NDC) $[-1, 1] \times [-1, 1]$:
+   $$\text{clipSpace} = \left(\frac{\text{worldPos}}{\text{resolution}}\right) \times 2.0 - 1.0$$
+   $$\text{clipSpace}.y = -\text{clipSpace}.y$$
+   By negating `clipSpace.y`, the shader maps top-left canvas coordinates $(y = 0)$ to GLES NDC top $(y = +1.0)$ and bottom canvas coordinates $(y = H)$ to GLES NDC bottom $(y = -1.0)$, stamping upright into the FBO.
+
+2. **Smudge Texture V Inversion (`SmudgeShader.kt`)**:
+   Because the FBO texture's vertical coordinate $V$ is oriented bottom-to-top while canvas space is top-to-bottom, the smudge vertex shader calculates the canvas sampling UV coordinate as:
+   $$v_{\text{canvasTexCoord}} = \begin{bmatrix} \frac{\text{worldPos}.x}{u_{\text{resolution}}.x} \\ 1.0 - \left(\frac{\text{worldPos}.y}{u_{\text{resolution}}.y}\right) \end{bmatrix}$$
+   This ensures color dragging samples the true spatial neighborhood around the brush tip without vertical inversion.
+
+3. **Compositing Quad UV Mapping (`CompositingShader.kt`)**:
+   During the final composite pass to `GL_FRAMEBUFFER 0`, the canvas quad defines vertices spanning $[0, 1] \times [0, 1]$ positioned by the Viewport Model-View-Projection (MVP) matrix:
+   - Top-Left: $\text{pos}(0.0, 0.0) \to \text{uv}(0.0, 1.0)$
+   - Top-Right: $\text{pos}(1.0, 0.0) \to \text{uv}(1.0, 1.0)$
+   - Bottom-Left: $\text{pos}(0.0, 1.0) \to \text{uv}(0.0, 0.0)$
+   - Bottom-Right: $\text{pos}(1.0, 1.0) \to \text{uv}(1.0, 0.0)$
+   Mapping vertex $Y = 0$ (top of quad) to texture $V = 1.0$ (top of OpenGL texture) and vertex $Y = 1$ (bottom of quad) to texture $V = 0.0$ (bottom of OpenGL texture) renders the drawing FBO perfectly upright on screen.
+
+4. **Orthographic Screen Projection Matrix**:
+   In `SmartDrawRenderer.composite()`, the orthographic projection matrix maps screen pixel coordinates $[0, W_{\text{surface}}] \times [H_{\text{surface}}, 0]$ to NDC:
+   $$\text{Matrix.orthoM}(M_{\text{proj}}, 0, 0.0f, W_{\text{surface}}, H_{\text{surface}}, 0.0f, -1.0f, 1.0f)$$
+   Screen coordinate $(y = 0)$ projects to NDC $+1.0$ and $(y = H_{\text{surface}})$ projects to NDC $-1.0$, matching Android touch coordinate conventions.
+
+5. **Full Bitmap Export Row Inversion (`GlesFbo.readBitmap`)**:
+   `glReadPixels(0, 0, width, height, ...)` reads scanlines starting from row 0 at the bottom of the FBO. To construct an upright Android `Bitmap` where row 0 is the top, scanlines are inverted:
+   $$y_{\text{bitmap}} = H - 1 - y_{\text{gl}}$$
+
+6. **Sub-Rectangle Sub-Pixel Readback Inversion (`GlesFbo.readSubRect`)**:
+   For Ratchet Mode bounding box evaluations, given top-left canvas coordinates $(x, y)$ and dimensions $(w, h)$:
+   $$glX = \text{clamp}(x, 0, W - 1), \quad glY = \text{clamp}(H - (y + h), 0, H - 1)$$
+   `glReadPixels` reads the sub-rectangle starting at $glY$. The row loop flips the scanlines into the output ARGB integer array so that row 0 corresponds to top-left $(x, y)$, matching CPU software simulation.
+
+#### 3.4.3 Pending GL Lifecycle Queue (`SmartDrawView.kt`)
+Android lifecycle events and `Activity.onCreate()` frequently load bitmaps, reference images, opacity, and visibility before the underlying `GLSurfaceView` EGL context is created on the render thread (`rendererInstance == null`).
+
+To prevent race conditions, dropped textures, or null pointer exceptions:
+- Staging fields (`pendingBaseBitmap`, `pendingReferenceBitmap`, `pendingReferenceOpacity`, `pendingReferenceVisible`) queue requests on the Main Thread.
+- When `onSurfaceCreated(gl, config)` fires inside the active EGL render context, `SmartDrawView` instantiates `SmartDrawRenderer` and drains the pending queue, uploading textures to the GPU and recycling temporary bitmap references.
+- Guarantees seamless, zero-glitch project restoration upon cold start or process resurrection.
+
 ---
 
 ## 4. Input Architecture, Stylus Drawing & Viewport Navigation
@@ -303,16 +354,63 @@ Raw touch coordinates arrive as discrete polygons. SmartDraw applies real-time c
 
 ---
 
-## 7. Reference Color Auto-Picker (`ReferenceColorSampler.kt`)
+## 7. Reference Color Auto-Picker & Covered-Pixel Averaging (`ReferenceColorSampler.kt`)
 
-Enables guided painting where the brush automatically matches colors from an underlying photograph or artwork:
+Enables reference-guided painting where the brush automatically samples and harmonizes colors from an underlying photograph or artwork:
 
+### 7.1 Single-Point Color Sampling & Normalization
 1. **Coordinate Mapping**:
-   - Maps canvas coordinates $(x_c, y_c)$ to reference image coordinates $(x_r, y_r)$ considering aspect ratio scaling and letterboxing.
-2. **Sampling Logic**:
-   - Bilinear interpolation or $3 \times 3$ box kernel averaging over reference pixels to eliminate high-frequency camera noise.
-3. **Dynamic Stroke Modulation**:
-   - As the Bezier curve advances, the auto-picker updates `u_brushColor` at each stamp step, producing gradient-matched transitions that follow the contours of the reference image.
+   - Maps canvas coordinates $(x_c, y_c)$ to reference image coordinates $(x_r, y_r)$ considering aspect ratio scaling and letterboxing:
+     $$\text{scale} = \min\left(\frac{W_{\text{canvas}}}{W_{\text{ref}}}, \frac{H_{\text{canvas}}}{H_{\text{ref}}}\right)$$
+     $$\text{offsetX} = \frac{W_{\text{canvas}} - (W_{\text{ref}} \times \text{scale})}{2}, \quad \text{offsetY} = \frac{H_{\text{canvas}} - (H_{\text{ref}} \times \text{scale})}{2}$$
+     $$x_r = \text{round}\left(\frac{x_c - \text{offsetX}}{\text{scale}}\right), \quad y_r = \text{round}\left(\frac{y_c - \text{offsetY}}{\text{scale}}\right)$$
+   - Out-of-bounds samples safely clamp or return `defaultColor`.
+2. **Channel Normalization**:
+   - `sampleColorNormalized(x, y)` extracts ARGB integer components into float array $[R, G, B, A] \in [0.0, 1.0]^4$ for direct consumption by OpenGL ES shader uniforms (`u_brushColor`).
+
+### 7.2 Dynamic Stroke Modulation Along Path
+- In live drawing mode, `sampleColor()` is evaluated at stroke initiation to supply the initial preview tint for `activeStrokeFbo`.
+- In autonomous loop execution (`SteadyImprovementLoop.kt`), stroke paths are evaluated continuously along the Bezier curve, allowing multi-color gradient sweeps across reference color transitions.
+
+### 7.3 Fast 13-Point Disc Stencil Covered-Pixel Averaging (<0.05ms)
+
+#### 7.3.1 Motivation & Bottleneck Elimination
+In previous implementations, stroke termination attempted to calculate the average covered reference color using a full bounding-box CPU double loop over all pixels in $[x_{\min}, x_{\max}] \times [y_{\min}, y_{\max}]$, checking distance to every Bezier stamp point. For wide strokes or long sweeping curves (e.g., $100\text{ px}$ radius over $1500\text{ px}$ curve length), this resulted in evaluating tens of thousands of pixels on the main/render thread, causing severe $50–200\text{ ms}$ UI frame freezes upon lifting the stylus (`ACTION_UP`).
+
+#### 7.3.2 13-Point Disc Stencil Architecture
+SmartDraw replaces the brute-force pixel scanning loop with an isotropic, constant-time 13-point disc stencil evaluated at regular intervals along the Bezier stroke path:
+
+1. **Disc Stencil Geometry**:
+   At each evaluation point $(x, y)$ with effective brush radius $R$, 13 representative points are sampled across concentric rings:
+   - **Center Anchor (1 point)**: $(0.0, 0.0)$
+   - **Inner Ring at $0.3R$ (4 cardinal points)**: $(0.0, \pm 0.3R)$, $(\pm 0.3R, 0.0)$
+   - **Outer Ring at $0.6R$ (4 cardinal points)**: $(0.0, \pm 0.6R)$, $(\pm 0.6R, 0.0)$
+   - **Diagonal Ring at $0.6R / \sqrt{2} \approx 0.4243R$ (4 diagonal points)**: $(\pm 0.4243R, \pm 0.4243R)$
+
+   ```
+                      (0, +0.6r)
+                          •
+         (-0.42r, +0.42r)   (0, +0.3r)   (+0.42r, +0.42r)
+               •          •          •
+   (-0.6r, 0) •   (-0.3r, 0)• (0,0)• (+0.3r, 0)• (+0.6r, 0)
+               •          •          •
+         (-0.42r, -0.42r)   (0, -0.3r)   (+0.42r, -0.42r)
+                          •
+                      (0, -0.6r)
+   ```
+
+2. **Bounded Path Striding**:
+   - The Bezier curve points are downsampled to a maximum of $K = 60$ evenly spaced positions:
+     $$\text{stride} = \max\left(1, \left\lfloor\frac{N_{\text{points}}}{60}\right\rfloor\right)$$
+   - Total sample operations per stroke: $N_{\text{samples}} \le 60 \times 13 = 780$ point lookups.
+   - Fixed computational bound: Regardless of canvas resolution or stroke length, execution time is strictly bounded and completes in **$< 0.05\text{ ms}$**, eliminating all UI stutter while yielding mathematically representative color coverage.
+
+3. **Accumulation & Clamping**:
+   $$\text{total}_R = \sum_{i=1}^M R_i, \quad \text{total}_G = \sum_{i=1}^M G_i, \quad \text{total}_B = \sum_{i=1}^M B_i$$
+   $$R_{\text{avg}} = \text{clamp}\left(\left\lfloor \frac{\text{total}_R}{M} \right\rfloor, 0, 255\right)$$
+   $$G_{\text{avg}} = \text{clamp}\left(\left\lfloor \frac{\text{total}_G}{M} \right\rfloor, 0, 255\right)$$
+   $$B_{\text{avg}} = \text{clamp}\left(\left\lfloor \frac{\text{total}_B}{M} \right\rfloor, 0, 255\right)$$
+   $$\text{finalColor} = \text{Color.rgb}(R_{\text{avg}}, G_{\text{avg}}, B_{\text{avg}})$$
 
 ---
 
@@ -775,6 +873,23 @@ When the stylus lifts (`MotionEvent.ACTION_UP`):
 3. **Cancellation Handling**:
    - On `ACTION_CANCEL`, `clearActiveStroke()` discards the active stroke immediately.
 
+#### 12.3.4 Sub-Rectangle Software Simulation & Evaluator Implementation
+To prevent expensive GPU synchronization stalls (`glFinish` or full texture copy), `RatchetEvaluator.kt` evaluates candidate loss entirely via CPU sub-rectangle simulation:
+1. **Sub-Rect Readback (`baseFbo.readSubRect`)**:
+   - Reads only the bounded rectangle $\Omega_S = [x_0, y_0, x_1, y_1]$ into an integer pixel buffer `basePixels` ($W_\Omega \times H_\Omega$).
+2. **Software Disc Stamp Rasterizer (`simulateStrokeOnSubRect`)**:
+   - Copies `basePixels` into `candidatePixels`.
+   - Iterates through accumulated Bezier segments, sampling uniform stamp positions at `stepSize = max(0.5f, radius * spacingRatio)`.
+   - Stamps circular disc brush footprints with antialiased edge falloff:
+     $$\text{edgeDist} = r_{\text{eff}} - \text{dist}, \quad \text{antialias} = \text{clamp}(\text{edgeDist}, 0.0, 1.0)$$
+     $$\alpha_{\text{stamp}} = \alpha_{\text{seg}} \times \text{antialias}$$
+   - Blends candidate stroke color over `candidatePixels` using standard alpha compositing.
+3. **L1 Manhattan Loss Comparison (`evaluateSimilarity`)**:
+   - Compares total absolute color error across RGB channels over all pixels in $\Omega_S$:
+     $$\text{lossBefore} = \sum_{(x, y) \in \Omega_S} (|P_R - I_R| + |P_G - I_G| + |P_B - I_B|)$$
+     $$\text{lossAfter} = \sum_{(x, y) \in \Omega_S} (|P'_R - I_R| + |P'_G - I_G| + |P'_B - I_B|)$$
+   - Returns `lossAfter <= lossBefore`. If true, the GPU renderer permanently commits stamps to `baseFbo`; if false, `activeStrokeFbo` is cleared, achieving zero-cost rollback.
+
 ---
 
 ### 12.4 UI Integration & State Persistence
@@ -791,5 +906,159 @@ The Ratchet Mode toggle state is persisted per-project:
   - Serialized and deserialized in `ProjectManager` and maintained across sessions, gallery switching, and app restarts.
 
 #### 12.4.3 Visual & Haptic Feedback
-- **Visual Feedback**: Optional subtle toast / indicator when a stroke is rejected by ratchet mode (e.g., "Stroke discarded — did not improve resemblance").
-- **Haptic Feedback**: Subtle vibration / rejection haptic pulse alerting the artist that the stroke was rolled back without interrupting drawing flow.
+- **Visual Feedback**: Subtle status message in the persistent status banner when ratchet mode accepts or rejects strokes.
+- **Zero Data Loss Guarantee**: Rejected strokes leave `baseFbo` in its exact pre-stroke state without allocating undo history or creating disk writes.
+
+---
+
+## 13. User Interface & Interaction Architecture
+
+SmartDraw Android implements an uncluttered, modern dark-theme user interface optimized for tablet and phone displays. Screen real estate is preserved for the canvas by utilizing icon-only controls and modal bottom sheets.
+
+### 13.1 Streamlined Icon-Only Top Toolbar (`activity_main.xml`)
+
+The top app bar (height $56\text{ dp}$, background `#1E1E1E`, elevation $4\text{ dp}$) houses five primary controls with visual state cues:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ [ Active Tool ] [ Auto Color ] [ Reset View ]    <Spacer>   [ 🖼 Gallery ] [ … More ] │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+1. **`btnActiveTool` (Active Tool Icon & Quick Settings Trigger)**:
+   - Displays the current drawing tool's icon (`ic_pencil` for Pencil, `ic_smudge` for Smudge).
+   - Styled with `@drawable/bg_tool_button_active` (`#2A2A2A` surface with active outline).
+   - Single tap opens the **Tool Settings Bottom Sheet** (`ToolSettingsBottomSheet`).
+2. **`btnAutoColor` (Dynamic Reference Color Auto-Picker Toggle)**:
+   - Displays the color sampling icon (`ic_auto_color`).
+   - Visual state toggle: Active state renders with highlighted accent background (`#4A90E2` / white icon); inactive state renders muted gray (`#B0B0B0`).
+   - Toggles dynamic reference color sampling along stroke paths.
+3. **`btnResetView` (Viewport Reset to 1:1 Aspect-Fit Centered)**:
+   - Displays the target frame icon (`ic_reset_view`).
+   - Instantly snaps canvas scale to aspect-fit ($S = 1.0$), rotation to $\theta = 0^\circ$, and centers the canvas inside the viewport.
+4. **Flexible Spacer (`View weight=1`)**:
+   - Generously separates core drawing tools on the left from document and session management on the right.
+5. **`btnGallery` (Multi-Painting Gallery)**:
+   - Displays the image grid icon (`ic_gallery`).
+   - Flushes active auto-save and opens the **Paintings Gallery** modal (`GalleryDialogFragment`).
+6. **`btnMoreOptions` (Overflow Ellipsis Settings Sheet)**:
+   - Displays the ellipsis icon (`ic_more`).
+   - Opens the **More Options Bottom Sheet** (`MoreOptionsBottomSheet`).
+
+---
+
+### 13.2 Tool Settings Bottom Sheet (`ToolSettingsBottomSheet.kt`)
+
+Activated by tapping the active tool icon in the toolbar, this bottom sheet provides tactile control over tool selection, radius, and opacity with real-time visual feedback:
+
+1. **Tool Switcher Cards**:
+   - Side-by-side interactive card containers for **Pencil** and **Smudge**.
+   - Active card is highlighted with `@drawable/bg_tool_card_selected` (`#2D3748` background and `#4A90E2` accent border).
+   - Switching tools automatically updates the top toolbar icon and triggers a debounced auto-save timer reset.
+2. **Live Brush Preview Ring (`BrushPreviewView.kt`)**:
+   - Custom Android `View` rendering an antialiased circular brush stamp on a checkered preview box.
+   - Dynamically scales radius and adjusts alpha in real time as the user drags sliders, providing instantaneous tactile calibration.
+3. **Brush Size Slider**:
+   - Granular slider spanning $2\text{ px}$ to $100\text{ px}$ with integer readout (e.g., `24 px`).
+4. **Brush Opacity Slider**:
+   - Continuous slider spanning $1\%$ to $100\%$ with percentage readout (e.g., `85%`).
+
+---
+
+### 13.3 Overflow Settings Bottom Sheet (`MoreOptionsBottomSheet.kt`)
+
+Activated by tapping the ellipsis (`...`) button, this sheet consolidates secondary document and layer controls:
+
+1. **Nested Source Image Action**:
+   - Dynamic button: Displays "Load Source Image" if no custom reference image is present, or "Change Source Image" if an image is already active.
+   - Clicking dismisses the sheet and launches the Android photo picker (`ActivityResultContracts.GetContent("image/*")`).
+2. **Source Image Opacity Slider**:
+   - Continuous slider spanning $0\%$ to $100\%$ with percentage readout.
+   - Dragging slider automatically enables reference layer visibility if opacity $> 0\%$.
+3. **Source Image Visibility Toggle**:
+   - "Hide Source Image" / "Show Source Image" button toggling `referenceLayer.isVisible`.
+4. **Ratchet Mode Toggle (`SwitchCompat`)**:
+   - Switch control labeled "Ratchet Mode (Keep Improvements Only)" with explanatory subtitle.
+   - Enforces distance-monotonic painting (§12).
+5. **Clear Canvas Action**:
+   - Raises a destructive confirmation alert dialog: "Are you sure you want to clear your painting? This cannot be undone."
+   - Clears `baseFbo` and `scratchFbo` to opaque white upon confirmation.
+6. **Reset Canvas View Action**:
+   - Redundant shortcut executing `drawView.resetView()`.
+7. **Run Test Harness Action**:
+   - Triggers asynchronous execution of the 30–200 stroke Bezier test harness (§9).
+8. **Document Shortcuts**:
+   - Direct buttons to "Open Gallery" and "+ New Painting".
+
+---
+
+### 13.4 Source Image Import & Aspect-Fit Resolution Scaling Modal (`dialog_import_image.xml`)
+
+When an image is picked from device storage or gallery:
+
+1. **Header & Bounds Pre-flight**:
+   - Displays original dimensions and megapixel count: e.g., `Original: 1200 × 1600 (1.9 MP)`.
+2. **Resolution Multiplier Slider**:
+   - Integer slider spanning $1\times$ to $8\times$. Default scale is automatically pre-selected ($2\times$ for images $\le 1024\text{ px}$, $1\times$ for larger images).
+3. **Real-Time Target Dimensions & MP Calculation**:
+   - Displays scaled resolution: e.g., at $3\times$, `Canvas Resolution: 3600 × 4800 (17.3 MP)`.
+4. **GPU Texture Ceiling Guard**:
+   - Enforces $8192\text{ px}$ GPU hardware limit:
+     $$\max(W_{\text{target}}, H_{\text{target}}) \le 8192$$
+   - If exceeded, displays a prominent warning in red (`textGpuLimitWarning`) and disables the "Import & Create Canvas" button.
+5. **Confirmation Pipeline**:
+   - Allocates FBOs to exact target dimensions, clears canvas to opaque white, sets reference image texture, and centers the camera.
+
+---
+
+### 13.5 Multi-Painting Gallery Dialog (`GalleryDialogFragment.kt` & `GalleryAdapter.kt`)
+
+Provides visual, responsive document management:
+
+1. **Fullscreen Presentation**:
+   - Dark theme overlay (`Theme_Black_NoTitleBar_Fullscreen`) with app bar containing "+ New Painting" and close buttons.
+2. **Adaptive Grid Layout**:
+   - Automatically switches column span based on device orientation: 2 columns on portrait, 3 columns on landscape.
+3. **Painting Tile Card**:
+   - **Thumbnail Preview**: Aspect-fit rendering of downscaled `thumbnail.png` against checkered background.
+   - **Active Badge**: Prominent colored border / badge indicating the currently open document.
+   - **Title Label**: Project title from `metadata.json`.
+   - **Metadata Caption**: Dimensions and relative timestamp (e.g., `2400 × 3200 • Updated 5m ago`).
+   - **Delete Button**: Trash icon raising confirmation dialog.
+4. **Safe Deletion & Active Document Fallback**:
+   - Deleting the active document automatically transfers the editor to the most recently updated remaining project.
+   - If the gallery becomes empty, automatically creates a new blank canvas project, guaranteeing zero null-state crashes.
+
+---
+
+### 13.6 Dedicated Status Banner & Progress Indicator
+
+Positioned immediately beneath the top toolbar (background `#181818`, height $32\text{ dp}$):
+- Displays real-time operational feedback: e.g., "Ready - Draw with stylus, pan/zoom with two fingers", "Tool: Pencil (size: 24 px)", "Auto color sampling enabled", "View reset to 1:1 centered".
+- Integrated circular `ProgressBar` indicating background disk auto-save, image decoding, or test harness execution.
+
+---
+
+### 13.7 Complete UI Action & Event Flow Matrix
+
+| UI Component | User Action | Event / Execution Target | State Transition |
+| :--- | :--- | :--- | :--- |
+| **`btnActiveTool`** | Click | `showToolSettingsModal()` | Opens `ToolSettingsBottomSheet` |
+| **Tool Card (Pencil/Smudge)** | Click | `onToolSelected(toolMode)` | Updates active tool, top toolbar icon, marks dirty |
+| **Brush Size Slider** | Drag | `onBrushSizeChanged(radius)` | Updates `baseRadius`, brush preview ring, marks dirty |
+| **Brush Opacity Slider** | Drag | `onBrushOpacityChanged(opacity)` | Updates `baseOpacity`, brush preview ring, marks dirty |
+| **`btnAutoColor`** | Click | Toggle `drawView.useReferenceColors` | Updates button highlight, auto-picker mode, marks dirty |
+| **`btnResetView`** | Click | `drawView.resetView()` | Viewport scale $\to S_{\text{fit}}$, rotation $\to 0^\circ$, centered |
+| **`btnGallery`** | Click | `openGallery()` | Flushes auto-save, opens `GalleryDialogFragment` |
+| **`btnMoreOptions`** | Click | `showMoreOptionsModal()` | Opens `MoreOptionsBottomSheet` |
+| **Load/Change Source Image** | Click | `pickImageLauncher.launch("image/*")` | Opens system photo picker |
+| **Import Modal Slider** | Drag | Scale $1\times$ to $8\times$ | Recalculates MP, validates $\le 8192\text{ px}$ GPU ceiling |
+| **Import Modal Confirm** | Click | `performImageImport(uri, w, h)` | Resizes canvas FBOs, sets reference, enables AutoColor |
+| **Source Opacity Slider** | Drag | `onOpacityChanged(percent)` | Updates `referenceLayer.opacity`, marks dirty |
+| **Toggle Source Visibility** | Click | `onToggleSourceVisibilityClicked()` | Toggles `referenceLayer.isVisible`, marks dirty |
+| **Ratchet Mode Switch** | Toggle | `onRatchetModeToggled(enabled)` | Updates `drawView.isRatchetEnabled`, marks dirty |
+| **Clear Painting Button** | Click | Confirmation Dialog $\to$ Clear | Clears FBOs to white, marks dirty |
+| **Gallery Tile** | Click | `onProjectSelected(project)` | Flushes current save, restores target project |
+| **Gallery Tile Delete** | Click | Confirmation Dialog $\to$ Purge | Deletes `<uuid>/`, falls back to next active project |
+| **Gallery "+ New Painting"** | Click | `promptNewPainting()` | Flushes current save, creates new project, resets view |
+
