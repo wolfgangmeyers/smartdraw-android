@@ -28,10 +28,8 @@ class ColorSettingsBottomSheet : BottomSheetDialogFragment() {
     }
 
     var listener: Listener? = null
-    var drawView: SmartDrawView? = null
     var currentBrushColor: Int = Color.BLACK
     var useReferenceColors: Boolean = false
-    var referenceStatusText: String = "Loaded (Ready)"
     var sliderMode: SliderMode = SliderMode.RGB
 
     private lateinit var btnCloseColorSettings: ImageButton
@@ -40,8 +38,6 @@ class ColorSettingsBottomSheet : BottomSheetDialogFragment() {
 
     // Auto Color Content
     private lateinit var layoutAutoColorContent: LinearLayout
-    private lateinit var textReferenceStatus: TextView
-    private lateinit var btnSwitchToManual: LinearLayout
 
     // Manual Color Content
     private lateinit var layoutManualColorContent: LinearLayout
@@ -78,13 +74,11 @@ class ColorSettingsBottomSheet : BottomSheetDialogFragment() {
 
         fun newInstance(
             brushColor: Int = Color.BLACK,
-            useReferenceColors: Boolean = false,
-            referenceStatus: String = "Loaded (Ready)"
+            useReferenceColors: Boolean = false
         ): ColorSettingsBottomSheet {
             return ColorSettingsBottomSheet().apply {
                 currentBrushColor = brushColor
                 this.useReferenceColors = useReferenceColors
-                this.referenceStatusText = referenceStatus
             }
         }
     }
@@ -105,8 +99,6 @@ class ColorSettingsBottomSheet : BottomSheetDialogFragment() {
         btnModeManualColor = view.findViewById(R.id.btnModeManualColor)
 
         layoutAutoColorContent = view.findViewById(R.id.layoutAutoColorContent)
-        textReferenceStatus = view.findViewById(R.id.textReferenceStatus)
-        btnSwitchToManual = view.findViewById(R.id.btnSwitchToManual)
 
         layoutManualColorContent = view.findViewById(R.id.layoutManualColorContent)
         colorSwatchPreview = view.findViewById(R.id.colorSwatchPreview)
@@ -132,8 +124,6 @@ class ColorSettingsBottomSheet : BottomSheetDialogFragment() {
         textLightnessValue = view.findViewById(R.id.textLightnessValue)
         sliderLightness = view.findViewById(R.id.sliderLightness)
 
-        textReferenceStatus.text = referenceStatusText
-
         updateModeUI()
 
         btnCloseColorSettings.setOnClickListener {
@@ -143,7 +133,6 @@ class ColorSettingsBottomSheet : BottomSheetDialogFragment() {
         btnModeAutoColor.setOnClickListener {
             if (!useReferenceColors) {
                 useReferenceColors = true
-                drawView?.useReferenceColors = true
                 listener?.onAutoColorToggled(true)
                 updateModeUI()
             }
@@ -152,22 +141,13 @@ class ColorSettingsBottomSheet : BottomSheetDialogFragment() {
         btnModeManualColor.setOnClickListener {
             if (useReferenceColors) {
                 useReferenceColors = false
-                drawView?.useReferenceColors = false
                 listener?.onAutoColorToggled(false)
                 updateModeUI()
             }
         }
 
-        btnSwitchToManual.setOnClickListener {
-            useReferenceColors = false
-            drawView?.useReferenceColors = false
-            listener?.onAutoColorToggled(false)
-            updateModeUI()
-        }
-
         btnEyedropperSheet.setOnClickListener {
             dismiss()
-            drawView?.isEyedropperActive = true
             listener?.onEyedropperRequested()
         }
 
@@ -274,7 +254,6 @@ class ColorSettingsBottomSheet : BottomSheetDialogFragment() {
         currentBrushColor = newColor
         updateSwatchAndHex(newColor)
 
-        drawView?.brushColor = newColor
         listener?.onBrushColorChanged(newColor)
 
         isUpdatingSlidersInternally = true

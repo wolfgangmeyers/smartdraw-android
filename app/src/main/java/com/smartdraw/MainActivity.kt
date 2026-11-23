@@ -249,7 +249,6 @@ class MainActivity : AppCompatActivity(),
                     drawView.setReferenceVisible(isSourceVisible)
 
                     // Tool & Brush Settings
-                    drawView.currentProject = project
                     drawView.brushColor = project.manualBrushColor
                     drawView.useReferenceColors = project.useReferenceColors
                     drawView.setRatchetEnabled(project.isRatchetEnabled)
@@ -359,26 +358,16 @@ class MainActivity : AppCompatActivity(),
             brushColor = drawView.brushColor,
             useReferenceColors = drawView.useReferenceColors
         ).apply {
-            this.drawView = this@MainActivity.drawView
             this.listener = this@MainActivity
         }
         sheet.show(supportFragmentManager, ToolSettingsBottomSheet.TAG)
     }
 
     private fun showColorSettingsModal() {
-        val refStatus = if (isCustomImageLoaded) {
-            val w = currentProject?.canvasWidth ?: 1024
-            val h = currentProject?.canvasHeight ?: 1024
-            "Custom Image ($w×$h)"
-        } else {
-            "Default Radial Gradient"
-        }
         val sheet = ColorSettingsBottomSheet.newInstance(
             brushColor = drawView.brushColor,
-            useReferenceColors = drawView.useReferenceColors,
-            referenceStatus = refStatus
+            useReferenceColors = drawView.useReferenceColors
         ).apply {
-            this.drawView = this@MainActivity.drawView
             this.listener = this@MainActivity
         }
         sheet.show(supportFragmentManager, ColorSettingsBottomSheet.TAG)

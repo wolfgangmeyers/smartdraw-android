@@ -22,7 +22,6 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
     }
 
     var listener: Listener? = null
-    var drawView: SmartDrawView? = null
     var currentTool: SmartDrawView.ToolMode = SmartDrawView.ToolMode.PENCIL
     var currentBrushRadius: Float = 16.0f
     var currentBrushOpacity: Float = 1.0f

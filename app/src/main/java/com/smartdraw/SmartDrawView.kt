@@ -26,7 +26,6 @@ class SmartDrawView @JvmOverloads constructor(
 
     var toolMode: ToolMode = ToolMode.PENCIL
 
-    var currentProject: com.smartdraw.project.PaintingProject? = null
     var onBrushColorChanged: ((Int) -> Unit)? = null
     var onColorSampled: ((Int) -> Unit)? = null
     var onEyedropperStateChanged: ((Boolean) -> Unit)? = null
@@ -40,10 +39,8 @@ class SmartDrawView @JvmOverloads constructor(
         }
 
     var brushColor: Int = Color.BLACK
-        get() = currentProject?.manualBrushColor ?: field
         set(value) {
             field = value
-            currentProject?.manualBrushColor = value
             onBrushColorChanged?.invoke(value)
         }
     var useReferenceColors: Boolean = false
@@ -487,23 +484,50 @@ class SmartDrawView @JvmOverloads constructor(
         return result
     }
 
+    private var lastSampledCanvasX: Float = Float.NaN
+    private var lastSampledCanvasY: Float = Float.NaN
+    private var lastSampleTimeMs: Long = 0L
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (isEyedropperActive) {
             val (cx, cy) = screenToCanvas(event.x, event.y)
             when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                MotionEvent.ACTION_DOWN -> {
+                    lastSampledCanvasX = cx
+                    lastSampledCanvasY = cy
+                    lastSampleTimeMs = android.os.SystemClock.uptimeMillis()
                     val sampled = sampleCanvasColor(cx, cy)
                     brushColor = sampled
-                    onColorSampled?.invoke(sampled)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val now = android.os.SystemClock.uptimeMillis()
+                    val dx = cx - lastSampledCanvasX
+                    val dy = cy - lastSampledCanvasY
+                    val distSq = dx * dx + dy * dy
+                    // Throttle: only read pixel if touch moves >= 4 canvas pixels (16 px^2) or >= 30ms elapsed
+                    if (distSq >= 16f || (now - lastSampleTimeMs) >= 30L) {
+                        lastSampledCanvasX = cx
+                        lastSampledCanvasY = cy
+                        lastSampleTimeMs = now
+                        val sampled = sampleCanvasColor(cx, cy)
+                        // Live visual feedback during drag, without firing full confirmation notification
+                        brushColor = sampled
+                    }
                 }
                 MotionEvent.ACTION_UP -> {
                     val sampled = sampleCanvasColor(cx, cy)
                     brushColor = sampled
                     isEyedropperActive = false
+                    lastSampledCanvasX = Float.NaN
+                    lastSampledCanvasY = Float.NaN
+                    lastSampleTimeMs = 0L
                     onColorSampled?.invoke(sampled)
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     isEyedropperActive = false
+                    lastSampledCanvasX = Float.NaN
+                    lastSampledCanvasY = Float.NaN
+                    lastSampleTimeMs = 0L
                 }
             }
             return true
