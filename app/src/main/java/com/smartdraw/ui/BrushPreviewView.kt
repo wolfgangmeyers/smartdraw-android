@@ -44,6 +44,12 @@ class BrushPreviewView @JvmOverloads constructor(
         strokeWidth = 2f
     }
 
+    private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = Color.parseColor("#666666")
+        strokeWidth = 1f
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val cx = width / 2f
@@ -56,9 +62,10 @@ class BrushPreviewView @JvmOverloads constructor(
         // Draw the preview dot scaled up to maxRadius
         val drawRadius = minOf(brushRadius, maxRadius).coerceAtLeast(1.5f)
         val alpha = (brushOpacity.coerceIn(0.01f, 1.0f) * 255).toInt()
-        fillPaint.color = previewColor
+        fillPaint.color = (0xFF shl 24) or (previewColor and 0x00FFFFFF)
         fillPaint.alpha = alpha
 
         canvas.drawCircle(cx, cy, drawRadius, fillPaint)
+        canvas.drawCircle(cx, cy, drawRadius, outlinePaint)
     }
 }

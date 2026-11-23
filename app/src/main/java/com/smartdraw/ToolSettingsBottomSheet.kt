@@ -1,5 +1,6 @@
 package com.smartdraw
 
+import android.graphics.Color
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -24,6 +25,8 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
     var currentTool: SmartDrawView.ToolMode = SmartDrawView.ToolMode.PENCIL
     var currentBrushRadius: Float = 16.0f
     var currentBrushOpacity: Float = 1.0f
+    var currentBrushColor: Int = Color.BLACK
+    var useReferenceColors: Boolean = false
 
     private lateinit var cardToolPencil: LinearLayout
     private lateinit var cardToolSmudge: LinearLayout
@@ -47,12 +50,16 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
         fun newInstance(
             toolMode: SmartDrawView.ToolMode,
             brushRadius: Float,
-            brushOpacity: Float
+            brushOpacity: Float,
+            brushColor: Int = Color.BLACK,
+            useReferenceColors: Boolean = false
         ): ToolSettingsBottomSheet {
             return ToolSettingsBottomSheet().apply {
                 currentTool = toolMode
                 currentBrushRadius = brushRadius
                 currentBrushOpacity = brushOpacity
+                currentBrushColor = brushColor
+                this.useReferenceColors = useReferenceColors
             }
         }
     }
@@ -85,6 +92,7 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
         // Initialize preview
         brushPreview.brushRadius = currentBrushRadius
         brushPreview.brushOpacity = currentBrushOpacity
+        brushPreview.previewColor = if (useReferenceColors) Color.WHITE else currentBrushColor
 
         // Setup size slider (progress 0..98 maps to 2..100)
         val sizeProgress = (currentBrushRadius - MIN_BRUSH_RADIUS).roundToInt().coerceIn(0, 98)

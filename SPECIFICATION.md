@@ -292,6 +292,19 @@ When `useReferenceColors` is enabled, the auto-picker (`ReferenceColorSampler.kt
    $$x_r = \frac{x_c - \text{offset}_x}{\text{scale}_{\text{ref}}}, \quad y_r = \frac{y_c - \text{offset}_y}{\text{scale}_{\text{ref}}}$$
 3. Because sampling operates in Canvas Space, zooming, rotating, or panning the viewport never shifts or misaligns the sampled reference colors relative to the canvas content.
 
+#### 4.3.3.1 Manual Color Mode & Canvas Eyedropper
+
+When Auto Color (`useReferenceColors`) is disabled, the brush uses `manualBrushColor`:
+1. **Manual Color Application**:
+   - The brush color is fixed to `SmartDrawView.brushColor` (`currentProject.manualBrushColor`).
+   - Stamps drawn during active strokes are rendered with the manual color and modulated by dynamic stylus pressure and stroke opacity.
+2. **Canvas Eyedropper Sampling**:
+   - When eyedropper mode is activated (`isEyedropperActive = true`), touch and stylus gestures are diverted from painting strokes to canvas color sampling.
+   - Coordinate inversion: Touch screen coordinates $(x_s, y_s)$ are inverted to Canvas Space $(x_c, y_c)$ via `screenToCanvas()`.
+   - GPU Pixel Read: Executed on the GL render thread via `sampleCanvasColor()`. Binds `baseFbo`, queries $1 \times 1$ pixel at clamped integer coordinates $(x_c, y_c)$ via `GLES30.glReadPixels(x, glY, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, buffer)`, and packs into an ARGB `Int`.
+   - Real-Time Feedback: On `ACTION_DOWN` and `ACTION_MOVE`, the sampled color updates immediately in real time. On `ACTION_UP`, the sampled color is committed to `manualBrushColor`, Auto Color is disabled, eyedropper mode deactivates (`isEyedropperActive = false`), and feedback is displayed in the status bar and Toast.
+   - Persistence: The selected color is committed to `PaintingProject.manualBrushColor` and saved via the auto-save engine.
+
 #### 4.3.4 Viewport MVP Matrix in GLES Compositing Pass
 
 The Drawing FBO texture remains unscaled, unrotated, and unpanned in texture memory ($W_{\text{canvas}} \times H_{\text{canvas}}$). During the final composite pass to the display `SurfaceView` (`GL_FRAMEBUFFER 0`):
@@ -541,7 +554,8 @@ filesDir/
        "isRatchetEnabled": false,
        "activeTool": "PENCIL",
        "brushSize": 24.0,
-       "brushOpacity": 0.85
+       "brushOpacity": 0.85,
+       "manualBrushColor": -16777216
      }
      ```
    - Field semantics:
@@ -556,6 +570,7 @@ filesDir/
      - `activeTool` (`String`): Identifier for the active tool (`PENCIL`, `SMUDGE`, `ERASER`).
      - `brushSize` (`Float`): Canvas-space radius / diameter for brush stamping.
      - `brushOpacity` (`Float`): Stroke opacity factor $\in [0.0, 1.0]$.
+     - `manualBrushColor` (`Int`): ARGB 32-bit integer color value for manual brush strokes when Auto Color is disabled; defaults to `#FF000000` (opaque black). Backwards compatible with existing project JSONs missing this field.
 5. **`active_project.json`**:
    - Located in the root `projects/` directory, acting as an atomic pointer to the current document:
      ```json
@@ -917,31 +932,37 @@ SmartDraw Android implements an uncluttered, modern dark-theme user interface op
 
 ### 13.1 Streamlined Icon-Only Top Toolbar (`activity_main.xml`)
 
-The top app bar (height $56\text{ dp}$, background `#1E1E1E`, elevation $4\text{ dp}$) houses five primary controls with visual state cues:
+The top app bar (height $56\text{ dp}$, background `#1E1E1E`, elevation $4\text{ dp}$) houses six primary controls with visual state cues:
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│ [ Active Tool ] [ Auto Color ] [ Reset View ]    <Spacer>   [ 🖼 Gallery ] [ … More ] │
-└────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ [ Tool ] [ Color ] [ 💧 Eyedropper ] [ Reset View ]    <Spacer>   [ 🖼 Gallery ] [ … More ] │
+└────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 1. **`btnActiveTool` (Active Tool Icon & Quick Settings Trigger)**:
    - Displays the current drawing tool's icon (`ic_pencil` for Pencil, `ic_smudge` for Smudge).
    - Styled with `@drawable/bg_tool_button_active` (`#2A2A2A` surface with active outline).
    - Single tap opens the **Tool Settings Bottom Sheet** (`ToolSettingsBottomSheet`).
-2. **`btnAutoColor` (Dynamic Reference Color Auto-Picker Toggle)**:
-   - Displays the color sampling icon (`ic_auto_color`).
-   - Visual state toggle: Active state renders with highlighted accent background (`#4A90E2` / white icon); inactive state renders muted gray (`#B0B0B0`).
-   - Toggles dynamic reference color sampling along stroke paths.
-3. **`btnResetView` (Viewport Reset to 1:1 Aspect-Fit Centered)**:
+2. **`btnColorSettings` (Dedicated Color Settings Button)**:
+   - Displays the active color state:
+     - **Manual Color Mode**: Renders a live circular color swatch preview reflecting `drawView.brushColor` with a crisp white border.
+     - **Auto Color Mode**: Renders the dynamic sampling icon (`ic_auto_color`) with highlighted active state styling.
+   - Single tap opens the dedicated **Color Settings Bottom Sheet** (`ColorSettingsBottomSheet`).
+3. **`btnEyedropper` (Top Toolbar Eyedropper Tool Button)**:
+   - Displays the eyedropper icon (`ic_eyedropper`).
+   - One-tap activation of canvas eyedropper mode (`drawView.isEyedropperActive = true`).
+   - Highlights with `@drawable/bg_tool_button_active` when eyedropper mode is active.
+   - Touching or dragging on the canvas samples pixel colors in real time. Releasing (`ACTION_UP`) immediately commits the sampled color, switches to manual color mode, and deactivates eyedropper mode. Tapping the toolbar button while active toggles eyedropper mode off.
+4. **`btnResetView` (Viewport Reset to 1:1 Aspect-Fit Centered)**:
    - Displays the target frame icon (`ic_reset_view`).
    - Instantly snaps canvas scale to aspect-fit ($S = 1.0$), rotation to $\theta = 0^\circ$, and centers the canvas inside the viewport.
-4. **Flexible Spacer (`View weight=1`)**:
+5. **Flexible Spacer (`View weight=1`)**:
    - Generously separates core drawing tools on the left from document and session management on the right.
-5. **`btnGallery` (Multi-Painting Gallery)**:
+6. **`btnGallery` (Multi-Painting Gallery)**:
    - Displays the image grid icon (`ic_gallery`).
    - Flushes active auto-save and opens the **Paintings Gallery** modal (`GalleryDialogFragment`).
-6. **`btnMoreOptions` (Overflow Ellipsis Settings Sheet)**:
+7. **`btnMoreOptions` (Overflow Ellipsis Settings Sheet)**:
    - Displays the ellipsis icon (`ic_more`).
    - Opens the **More Options Bottom Sheet** (`MoreOptionsBottomSheet`).
 
@@ -949,7 +970,7 @@ The top app bar (height $56\text{ dp}$, background `#1E1E1E`, elevation $4\text{
 
 ### 13.2 Tool Settings Bottom Sheet (`ToolSettingsBottomSheet.kt`)
 
-Activated by tapping the active tool icon in the toolbar, this bottom sheet provides tactile control over tool selection, radius, and opacity with real-time visual feedback:
+Activated by tapping the active tool icon (`btnActiveTool`) in the toolbar, this bottom sheet provides tactile control strictly focused on tool selection, radius, and opacity with real-time visual feedback:
 
 1. **Tool Switcher Cards**:
    - Side-by-side interactive card containers for **Pencil** and **Smudge**.
@@ -958,6 +979,7 @@ Activated by tapping the active tool icon in the toolbar, this bottom sheet prov
 2. **Live Brush Preview Ring (`BrushPreviewView.kt`)**:
    - Custom Android `View` rendering an antialiased circular brush stamp on a checkered preview box.
    - Dynamically scales radius and adjusts alpha in real time as the user drags sliders, providing instantaneous tactile calibration.
+   - Displays current brush color (or white when Auto Color is active).
 3. **Brush Size Slider**:
    - Granular slider spanning $2\text{ px}$ to $100\text{ px}$ with integer readout (e.g., `24 px`).
 4. **Brush Opacity Slider**:
@@ -965,7 +987,36 @@ Activated by tapping the active tool icon in the toolbar, this bottom sheet prov
 
 ---
 
-### 13.3 Overflow Settings Bottom Sheet (`MoreOptionsBottomSheet.kt`)
+### 13.3 Dedicated Color Settings Bottom Sheet (`ColorSettingsBottomSheet.kt`)
+
+Activated by tapping the dedicated color button (`btnColorSettings`) in the top toolbar, this bottom sheet centralizes color configuration:
+
+1. **Header & Close Button**:
+   - Prominent "Color" title alongside an explicit close icon button (`btnCloseColorSettings`) for rapid dismissal.
+2. **Mode Selector Segmented Toggle**:
+   - Side-by-side toggle buttons for **Auto Color** vs **Manual Color**.
+   - Switches between automatic reference sampling and manual color palette controls.
+3. **Auto Color Mode View**:
+   - **Context & Guidance**: Explains that brush color is dynamically sampled from the reference image along each stroke.
+   - **Reference Image Status Indicator**: Readout displaying whether a custom reference image (`Custom Image (W×H)`) or default radial gradient is loaded and ready.
+   - **Quick Action**: "Switch to Manual Color Configuration" button seamlessly flips to manual color editing.
+4. **Manual Color Mode View**:
+   - **Live Swatch & Hex Readout**: Displays an antialiased circular color swatch preview with a crisp border alongside the formatted uppercase hex code (`#RRGGBB`).
+   - **Quick-Action Eyedropper Button**: Dedicated button styled with `ic_eyedropper`. Tapping dismisses the bottom sheet, activates `drawView.isEyedropperActive = true`, and presents guidance feedback to sample any color directly from the canvas.
+   - **Color Mode Switcher**: Segmented toggle buttons switching between **RGB** and **HSL** slider sets.
+   - **RGB Sliders**:
+     - Red ($0$ to $255$, styled in red `#FF5252`).
+     - Green ($0$ to $255$, styled in green `#4CAF50`).
+     - Blue ($0$ to $255$, styled in blue `#2979FF`).
+   - **HSL Sliders**:
+     - Hue ($0^\circ$ to $360^\circ$, styled in orange `#FF9800`).
+     - Saturation ($0\%$ to $100\%$, styled in pink `#E91E63`).
+     - Lightness ($0\%$ to $100\%$, styled in purple `#9C27B0`).
+   - **Bidirectional Model Synchronization**: Adjusting RGB sliders automatically computes and updates HSL sliders via `ColorSelectionUtil.colorToHsl`, and adjusting HSL sliders computes and updates RGB sliders via `ColorSelectionUtil.hslToColor`.
+
+---
+
+### 13.4 Overflow Settings Bottom Sheet (`MoreOptionsBottomSheet.kt`)
 
 Activated by tapping the ellipsis (`...`) button, this sheet consolidates secondary document and layer controls:
 
@@ -992,7 +1043,7 @@ Activated by tapping the ellipsis (`...`) button, this sheet consolidates second
 
 ---
 
-### 13.4 Source Image Import & Aspect-Fit Resolution Scaling Modal (`dialog_import_image.xml`)
+### 13.5 Source Image Import & Aspect-Fit Resolution Scaling Modal (`dialog_import_image.xml`)
 
 When an image is picked from device storage or gallery:
 
@@ -1011,7 +1062,7 @@ When an image is picked from device storage or gallery:
 
 ---
 
-### 13.5 Multi-Painting Gallery Dialog (`GalleryDialogFragment.kt` & `GalleryAdapter.kt`)
+### 13.6 Multi-Painting Gallery Dialog (`GalleryDialogFragment.kt` & `GalleryAdapter.kt`)
 
 Provides visual, responsive document management:
 
@@ -1031,15 +1082,15 @@ Provides visual, responsive document management:
 
 ---
 
-### 13.6 Dedicated Status Banner & Progress Indicator
+### 13.7 Dedicated Status Banner & Progress Indicator
 
 Positioned immediately beneath the top toolbar (background `#181818`, height $32\text{ dp}$):
-- Displays real-time operational feedback: e.g., "Ready - Draw with stylus, pan/zoom with two fingers", "Tool: Pencil (size: 24 px)", "Auto color sampling enabled", "View reset to 1:1 centered".
+- Displays real-time operational feedback: e.g., "Ready - Draw with stylus, pan/zoom with two fingers", "Tool: Pencil (size: 24 px)", "Brush color: #2979FF", "Auto color sampling enabled", "View reset to 1:1 centered".
 - Integrated circular `ProgressBar` indicating background disk auto-save, image decoding, or test harness execution.
 
 ---
 
-### 13.7 Complete UI Action & Event Flow Matrix
+### 13.8 Complete UI Action & Event Flow Matrix
 
 | UI Component | User Action | Event / Execution Target | State Transition |
 | :--- | :--- | :--- | :--- |
@@ -1047,7 +1098,12 @@ Positioned immediately beneath the top toolbar (background `#181818`, height $32
 | **Tool Card (Pencil/Smudge)** | Click | `onToolSelected(toolMode)` | Updates active tool, top toolbar icon, marks dirty |
 | **Brush Size Slider** | Drag | `onBrushSizeChanged(radius)` | Updates `baseRadius`, brush preview ring, marks dirty |
 | **Brush Opacity Slider** | Drag | `onBrushOpacityChanged(opacity)` | Updates `baseOpacity`, brush preview ring, marks dirty |
-| **`btnAutoColor`** | Click | Toggle `drawView.useReferenceColors` | Updates button highlight, auto-picker mode, marks dirty |
+| **`btnColorSettings`** | Click | `showColorSettingsModal()` | Opens `ColorSettingsBottomSheet` |
+| **Mode Selector (Auto/Manual)** | Click | `onAutoColorToggled(enabled)` | Toggles between Auto and Manual color modes, updates toolbar button, marks dirty |
+| **RGB / HSL Sliders** | Drag | `onBrushColorChanged(color)` | Updates `drawView.brushColor`, live swatch, toolbar button swatch, marks dirty |
+| **Eyedropper Button (Sheet)** | Click | `onEyedropperRequested()` | Dismisses sheet, sets `isEyedropperActive = true`, updates toolbar eyedropper highlight |
+| **`btnEyedropper` (Toolbar)** | Click | Toggle `drawView.isEyedropperActive` | One-tap toggle of canvas eyedropper mode, highlights toolbar button |
+| **Canvas Eyedropper** | Touch / Drag | `sampleCanvasColor(cx, cy)` | Samples `baseFbo` pixel, updates color live; commits & deactivates on release |
 | **`btnResetView`** | Click | `drawView.resetView()` | Viewport scale $\to S_{\text{fit}}$, rotation $\to 0^\circ$, centered |
 | **`btnGallery`** | Click | `openGallery()` | Flushes auto-save, opens `GalleryDialogFragment` |
 | **`btnMoreOptions`** | Click | `showMoreOptionsModal()` | Opens `MoreOptionsBottomSheet` |

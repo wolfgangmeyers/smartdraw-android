@@ -279,6 +279,7 @@ class ProjectManager(private val context: Context) {
             put("activeTool", project.activeTool)
             put("brushSize", project.brushSize.toDouble())
             put("brushOpacity", project.brushOpacity.toDouble())
+            put("manualBrushColor", project.manualBrushColor)
         }
         atomicWriteText(metaFile, json.toString(2))
     }
@@ -298,7 +299,8 @@ class ProjectManager(private val context: Context) {
             isRatchetEnabled = json.optBoolean("isRatchetEnabled", false),
             activeTool = json.optString("activeTool", "PENCIL"),
             brushSize = json.optDouble("brushSize", 20.0).toFloat(),
-            brushOpacity = json.optDouble("brushOpacity", 1.0).toFloat()
+            brushOpacity = json.optDouble("brushOpacity", 1.0).toFloat(),
+            manualBrushColor = json.optInt("manualBrushColor", Color.BLACK)
         )
     }
 

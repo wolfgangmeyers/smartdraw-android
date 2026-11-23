@@ -32,14 +32,16 @@ class MainActivityUiTest {
         val activity = controller.get()
 
         val btnActiveTool: ImageButton = activity.findViewById(R.id.btnActiveTool)
-        val btnAutoColor: ImageButton = activity.findViewById(R.id.btnAutoColor)
+        val btnColorSettings: ImageButton = activity.findViewById(R.id.btnColorSettings)
+        val btnEyedropper: ImageButton = activity.findViewById(R.id.btnEyedropper)
         val btnResetView: ImageButton = activity.findViewById(R.id.btnResetView)
         val btnGallery: ImageButton = activity.findViewById(R.id.btnGallery)
         val btnMoreOptions: ImageButton = activity.findViewById(R.id.btnMoreOptions)
         val drawView: SmartDrawView = activity.findViewById(R.id.smartDrawView)
 
         assertNotNull(btnActiveTool)
-        assertNotNull(btnAutoColor)
+        assertNotNull(btnColorSettings)
+        assertNotNull(btnEyedropper)
         assertNotNull(btnResetView)
         assertNotNull(btnGallery)
         assertNotNull(btnMoreOptions)
@@ -63,11 +65,17 @@ class MainActivityUiTest {
         activity.onBrushOpacityChanged(0.75f)
         assertEquals(0.75f, drawView.brushOpacity, 0.001f)
 
-        // Toggle auto color
-        btnAutoColor.performClick()
+        // Toggle auto color callback
+        activity.onAutoColorToggled(false)
         assertEquals(false, drawView.useReferenceColors)
-        btnAutoColor.performClick()
+        activity.onAutoColorToggled(true)
         assertEquals(true, drawView.useReferenceColors)
+
+        // Eyedropper toggle via toolbar
+        btnEyedropper.performClick()
+        assertTrue(drawView.isEyedropperActive)
+        btnEyedropper.performClick()
+        assertFalse(drawView.isEyedropperActive)
     }
 
     @Test

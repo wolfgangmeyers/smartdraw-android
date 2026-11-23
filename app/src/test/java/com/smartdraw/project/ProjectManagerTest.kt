@@ -168,4 +168,51 @@ class ProjectManagerTest {
         assertEquals(640, recovered?.canvasWidth)
         assertEquals(480, recovered?.canvasHeight)
     }
+
+    @Test
+    fun testManualBrushColorPersistenceAndDefault() {
+        val project = projectManager.createNewProject(512, 512, "Color Test")
+        assertEquals(Color.BLACK, project.manualBrushColor)
+
+        val customColor = Color.rgb(255, 87, 34) // Deep Orange
+        project.manualBrushColor = customColor
+
+        val dummyBmp = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
+        projectManager.saveProject(project, dummyBmp, null, isDirty = true)
+        dummyBmp.recycle()
+
+        val loaded = projectManager.loadProject(project.id)
+        assertEquals(customColor, loaded.project.manualBrushColor)
+    }
+
+    @Test
+    fun testBackwardsCompatibilityMissingManualBrushColor() {
+        // Simulate an older project created without manualBrushColor in metadata.json
+        val id = java.util.UUID.randomUUID().toString()
+        val dir = projectManager.getProjectDir(id).apply { mkdirs() }
+        val legacyJson = """
+            {
+              "id": "$id",
+              "title": "Legacy Project",
+              "canvasWidth": 800,
+              "canvasHeight": 600,
+              "createdAt": 1700000000000,
+              "updatedAt": 1700000000000,
+              "referenceOpacity": 0.5,
+              "isReferenceVisible": true,
+              "useReferenceColors": false,
+              "isRatchetEnabled": false,
+              "activeTool": "PENCIL",
+              "brushSize": 20.0,
+              "brushOpacity": 1.0
+            }
+        """.trimIndent()
+        File(dir, "metadata.json").writeText(legacyJson)
+
+        val project = projectManager.getProject(id)
+        assertNotNull(project)
+        assertEquals(Color.BLACK, project?.manualBrushColor)
+        assertEquals(800, project?.canvasWidth)
+        assertEquals(600, project?.canvasHeight)
+    }
 }

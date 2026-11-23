@@ -2,7 +2,9 @@ package com.smartdraw
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.graphics.ImageDecoder
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -19,6 +21,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import com.smartdraw.core.ColorSelectionUtil
 import com.smartdraw.gallery.GalleryDialogFragment
 import com.smartdraw.harness.BezierTestHarness
 import com.smartdraw.harness.ReferenceImageGenerator
@@ -37,6 +40,7 @@ import kotlin.math.roundToInt
 class MainActivity : AppCompatActivity(),
     MoreOptionsBottomSheet.Listener,
     ToolSettingsBottomSheet.Listener,
+    ColorSettingsBottomSheet.Listener,
     GalleryDialogFragment.Listener {
 
     companion object {
@@ -50,7 +54,8 @@ class MainActivity : AppCompatActivity(),
 
     lateinit var drawView: SmartDrawView
     private lateinit var btnActiveTool: ImageButton
-    private lateinit var btnAutoColor: ImageButton
+    private lateinit var btnColorSettings: ImageButton
+    private lateinit var btnEyedropper: ImageButton
     private lateinit var btnResetView: ImageButton
     private lateinit var btnGallery: ImageButton
     private lateinit var btnMoreOptions: ImageButton
@@ -76,7 +81,8 @@ class MainActivity : AppCompatActivity(),
 
         drawView = findViewById(R.id.smartDrawView)
         btnActiveTool = findViewById(R.id.btnActiveTool)
-        btnAutoColor = findViewById(R.id.btnAutoColor)
+        btnColorSettings = findViewById(R.id.btnColorSettings)
+        btnEyedropper = findViewById(R.id.btnEyedropper)
         btnResetView = findViewById(R.id.btnResetView)
         btnGallery = findViewById(R.id.btnGallery)
         btnMoreOptions = findViewById(R.id.btnMoreOptions)
@@ -99,6 +105,7 @@ class MainActivity : AppCompatActivity(),
                     p.activeTool = if (drawView.toolMode == SmartDrawView.ToolMode.PENCIL) "PENCIL" else "SMUDGE"
                     p.brushSize = drawView.getBrushSize()
                     p.brushOpacity = drawView.brushOpacity
+                    p.manualBrushColor = drawView.brushColor
                     return p
                 }
 
@@ -116,6 +123,29 @@ class MainActivity : AppCompatActivity(),
             autoSaveManager.markDirty()
         }
 
+        drawView.onBrushColorChanged = { color ->
+            currentProject?.manualBrushColor = color
+            updateColorUI()
+            autoSaveManager.markDirty()
+        }
+
+        drawView.onEyedropperStateChanged = { _ ->
+            updateEyedropperUI()
+        }
+
+        drawView.onColorSampled = { sampledColor ->
+            drawView.brushColor = sampledColor
+            currentProject?.manualBrushColor = sampledColor
+            drawView.useReferenceColors = false
+            currentProject?.useReferenceColors = false
+            updateColorUI()
+            updateEyedropperUI()
+            autoSaveManager.markDirty()
+            val hex = ColorSelectionUtil.colorToHex(sampledColor)
+            statusText.text = "Sampled color: $hex (Manual color mode)"
+            Toast.makeText(this@MainActivity, "Picked color: $hex", Toast.LENGTH_SHORT).show()
+        }
+
         // ActivityResultLauncher for selecting source/reference image from gallery or storage
         pickImageLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
             if (uri != null) {
@@ -128,12 +158,20 @@ class MainActivity : AppCompatActivity(),
             showToolSettingsModal()
         }
 
-        btnAutoColor.setOnClickListener {
-            drawView.useReferenceColors = !drawView.useReferenceColors
-            currentProject?.useReferenceColors = drawView.useReferenceColors
-            autoSaveManager.markDirty()
-            updateAutoColorUI()
-            statusText.text = if (drawView.useReferenceColors) "Auto color sampling enabled" else "Manual color mode"
+        btnColorSettings.setOnClickListener {
+            showColorSettingsModal()
+        }
+
+        btnEyedropper.setOnClickListener {
+            if (drawView.isEyedropperActive) {
+                drawView.isEyedropperActive = false
+                statusText.text = "Eyedropper cancelled"
+            } else {
+                drawView.isEyedropperActive = true
+                statusText.text = "Eyedropper active: Tap on canvas to sample color"
+                Toast.makeText(this@MainActivity, "Tap or drag on canvas to pick a color", Toast.LENGTH_SHORT).show()
+            }
+            updateEyedropperUI()
         }
 
         btnResetView.setOnClickListener {
@@ -211,6 +249,7 @@ class MainActivity : AppCompatActivity(),
                     drawView.setReferenceVisible(isSourceVisible)
 
                     // Tool & Brush Settings
+                    drawView.brushColor = project.manualBrushColor
                     drawView.useReferenceColors = project.useReferenceColors
                     drawView.setRatchetEnabled(project.isRatchetEnabled)
                     drawView.toolMode = if (project.activeTool == "SMUDGE") SmartDrawView.ToolMode.SMUDGE else SmartDrawView.ToolMode.PENCIL
@@ -218,7 +257,8 @@ class MainActivity : AppCompatActivity(),
                     drawView.brushOpacity = project.brushOpacity
 
                     updateActiveToolUI()
-                    updateAutoColorUI()
+                    updateColorUI()
+                    updateEyedropperUI()
                     drawView.resetView()
 
                     statusText.text = "${project.title} loaded"
@@ -314,10 +354,23 @@ class MainActivity : AppCompatActivity(),
         val sheet = ToolSettingsBottomSheet.newInstance(
             toolMode = drawView.toolMode,
             brushRadius = drawView.getBrushSize(),
-            brushOpacity = drawView.brushOpacity
-        )
-        sheet.listener = this
+            brushOpacity = drawView.brushOpacity,
+            brushColor = drawView.brushColor,
+            useReferenceColors = drawView.useReferenceColors
+        ).apply {
+            this.listener = this@MainActivity
+        }
         sheet.show(supportFragmentManager, ToolSettingsBottomSheet.TAG)
+    }
+
+    private fun showColorSettingsModal() {
+        val sheet = ColorSettingsBottomSheet.newInstance(
+            brushColor = drawView.brushColor,
+            useReferenceColors = drawView.useReferenceColors
+        ).apply {
+            this.listener = this@MainActivity
+        }
+        sheet.show(supportFragmentManager, ColorSettingsBottomSheet.TAG)
     }
 
     private fun showMoreOptionsModal() {
@@ -355,6 +408,32 @@ class MainActivity : AppCompatActivity(),
         currentProject?.brushOpacity = opacity
         autoSaveManager.markDirty()
         statusText.text = "Brush opacity: ${(opacity * 100f).roundToInt()}%"
+    }
+
+    // --- ColorSettingsBottomSheet.Listener Implementation ---
+
+    override fun onBrushColorChanged(color: Int) {
+        drawView.brushColor = color
+        currentProject?.manualBrushColor = color
+        autoSaveManager.markDirty()
+        updateColorUI()
+        val hex = ColorSelectionUtil.colorToHex(color)
+        statusText.text = "Brush color: $hex"
+    }
+
+    override fun onAutoColorToggled(enabled: Boolean) {
+        drawView.useReferenceColors = enabled
+        currentProject?.useReferenceColors = enabled
+        autoSaveManager.markDirty()
+        updateColorUI()
+        statusText.text = if (enabled) "Auto color sampling enabled" else "Manual color mode"
+    }
+
+    override fun onEyedropperRequested() {
+        drawView.isEyedropperActive = true
+        updateEyedropperUI()
+        statusText.text = "Eyedropper active: Tap on canvas to sample color"
+        Toast.makeText(this, "Tap or drag on canvas to pick a color", Toast.LENGTH_SHORT).show()
     }
 
     override fun onChangeSourceImageClicked() {
@@ -425,19 +504,44 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    private fun updateAutoColorUI() {
+    private fun updateColorUI() {
         if (drawView.useReferenceColors) {
-            btnAutoColor.setBackgroundResource(R.drawable.bg_tool_button_active)
-            btnAutoColor.setColorFilter(getColor(android.R.color.white))
+            btnColorSettings.setImageResource(R.drawable.ic_auto_color)
+            btnColorSettings.setColorFilter(Color.WHITE)
+            btnColorSettings.setBackgroundResource(R.drawable.bg_tool_button_active)
+            btnColorSettings.contentDescription = "Color: Auto Color Sampling (Tap for color settings)"
         } else {
-            btnAutoColor.setBackgroundResource(R.drawable.bg_tool_button_inactive)
-            btnAutoColor.setColorFilter(0xFFB0B0B0.toInt())
+            val density = resources.displayMetrics.density
+            val sizePx = (24 * density).roundToInt()
+            val strokePx = (2 * density).roundToInt()
+            val swatch = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(drawView.brushColor)
+                setStroke(strokePx, Color.WHITE)
+                setSize(sizePx, sizePx)
+            }
+            btnColorSettings.setImageDrawable(swatch)
+            btnColorSettings.colorFilter = null
+            btnColorSettings.setBackgroundResource(R.drawable.btn_icon_selector)
+            val hex = ColorSelectionUtil.colorToHex(drawView.brushColor)
+            btnColorSettings.contentDescription = "Color: $hex (Tap for color settings)"
+        }
+    }
+
+    private fun updateEyedropperUI() {
+        if (drawView.isEyedropperActive) {
+            btnEyedropper.setBackgroundResource(R.drawable.bg_tool_button_active)
+            btnEyedropper.setColorFilter(Color.WHITE)
+        } else {
+            btnEyedropper.setBackgroundResource(R.drawable.btn_icon_selector)
+            btnEyedropper.setColorFilter(0xFFB0B0B0.toInt())
         }
     }
 
     private fun setButtonsEnabled(enabled: Boolean) {
         btnActiveTool.isEnabled = enabled
-        btnAutoColor.isEnabled = enabled
+        btnColorSettings.isEnabled = enabled
+        btnEyedropper.isEnabled = enabled
         btnResetView.isEnabled = enabled
         btnGallery.isEnabled = enabled
         btnMoreOptions.isEnabled = enabled
@@ -586,7 +690,7 @@ class MainActivity : AppCompatActivity(),
                     drawView.setCanvasDimensions(targetW, targetH)
                     drawView.setReferenceImage(finalBitmap)
                     drawView.useReferenceColors = true
-                    updateAutoColorUI()
+                    updateColorUI()
 
                     currentProject?.let { p ->
                         p.canvasWidth = targetW
