@@ -49,9 +49,7 @@ class CircleBrushShader {
             if (alpha <= 0.001) {
                 discard;
             }
-            // Pressure sensitivity scales both radius and opacity
-            float pressureOpacity = clamp(0.15 + 0.85 * u_pressure, 0.08, 1.0);
-            fragColor = vec4(u_brushColor.rgb, u_brushColor.a * alpha * pressureOpacity);
+            fragColor = vec4(u_brushColor.rgb, u_brushColor.a * alpha);
         }
     """.trimIndent()
 

@@ -81,7 +81,8 @@ object RatchetEvaluator {
         box: BoundingBox,
         segments: List<Triple<BezierCurve, Float, Float>>, // curve, radius, opacity
         finalColor: Int,
-        spacingRatio: Float = 0.2f
+        spacingRatio: Float = 0.2f,
+        toolModes: List<com.smartdraw.SmartDrawView.ToolMode>? = null
     ) {
         val strokeR = Color.red(finalColor)
         val strokeG = Color.green(finalColor)
@@ -90,13 +91,23 @@ object RatchetEvaluator {
         val boxW = box.width
         val boxH = box.height
 
-        for ((curve, radius, opacity) in segments) {
+        for (i in segments.indices) {
+            val (curve, radius, opacity) = segments[i]
+            val mode = toolModes?.getOrNull(i) ?: com.smartdraw.SmartDrawView.ToolMode.PAINTBRUSH
             val stepSize = max(0.5f, radius * spacingRatio)
             val samples = curve.sampleUniform(stepSize)
             val segOpacity = baseAlpha * opacity
 
             for (pt in samples) {
-                val effRadius = radius * pt.pressure
+                val effRadius = when (mode) {
+                    com.smartdraw.SmartDrawView.ToolMode.PEN,
+                    com.smartdraw.SmartDrawView.ToolMode.PENCIL -> radius
+                    else -> radius * pt.pressure
+                }
+                val effOpacity = when (mode) {
+                    com.smartdraw.SmartDrawView.ToolMode.PENCIL -> segOpacity * pt.pressure
+                    else -> segOpacity
+                }
                 val rSq = effRadius * effRadius
                 val stampMinX = max(box.x0, (pt.x - effRadius).toInt())
                 val stampMaxX = min(box.x0 + boxW - 1, (pt.x + effRadius).toInt())
@@ -116,7 +127,7 @@ object RatchetEvaluator {
                             val dist = kotlin.math.sqrt(dSq)
                             val edgeDist = effRadius - dist
                             val antialias = edgeDist.coerceIn(0f, 1f)
-                            val stampAlpha = (segOpacity * antialias).coerceIn(0f, 1f)
+                            val stampAlpha = (effOpacity * antialias).coerceIn(0f, 1f)
 
                             if (stampAlpha > 0.005f) {
                                 val localX = px - box.x0

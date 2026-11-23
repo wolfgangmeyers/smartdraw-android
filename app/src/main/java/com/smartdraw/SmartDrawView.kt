@@ -208,12 +208,15 @@ class SmartDrawView @JvmOverloads constructor(
                         ToolMode.PAINTBRUSH,
                         ToolMode.PEN,
                         ToolMode.PENCIL -> {
+                            val segRadius = brushRadius
+                            val segOpacity = brushOpacity
                             r.drawActiveStrokeSegment(
                                 curve = curve,
-                                radius = radius,
-                                opacity = opacity,
+                                radius = segRadius,
+                                opacity = segOpacity,
                                 previewColor = activeStrokeStartColor,
-                                spacingRatio = 0.2f
+                                spacingRatio = 0.2f,
+                                toolMode = toolMode
                             )
                         }
                         ToolMode.SMUDGE -> {

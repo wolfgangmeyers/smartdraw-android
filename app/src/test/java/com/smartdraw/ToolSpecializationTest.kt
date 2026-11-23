@@ -1,9 +1,13 @@
 package com.smartdraw
 
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.widget.ImageButton
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
+import com.smartdraw.core.BezierCurve
+import com.smartdraw.core.Point2D
+import com.smartdraw.gles.SmartDrawRenderer
 import com.smartdraw.input.TouchInputHandler
 import com.smartdraw.project.PaintingProject
 import com.smartdraw.project.ProjectManager
@@ -94,25 +98,73 @@ class ToolSpecializationTest {
         val baseRadius = 12.0f
         val baseOpacity = 0.9f
 
-        // Test low pressure (light touch = faint graphite)
-        val (rLow, alphaLow) = TouchInputHandler.computeEffectiveRadiusAndOpacity(
-            toolMode = SmartDrawView.ToolMode.PENCIL,
-            baseRadius = baseRadius,
-            baseOpacity = baseOpacity,
-            pressure = 0.25f
-        )
-        assertEquals(baseRadius, rLow, 0.001f)
-        assertEquals(baseOpacity * 0.25f, alphaLow, 0.001f)
+        val pressures = floatArrayOf(0.05f, 0.2f, 0.5f, 0.85f, 1.0f)
+        for (p in pressures) {
+            val (r, alpha) = TouchInputHandler.computeEffectiveRadiusAndOpacity(
+                toolMode = SmartDrawView.ToolMode.PENCIL,
+                baseRadius = baseRadius,
+                baseOpacity = baseOpacity,
+                pressure = p
+            )
+            assertEquals("Pencil radius must remain strictly constant regardless of pressure", baseRadius, r, 0.001f)
+            assertEquals("Pencil opacity must modulate linearly with pressure", baseOpacity * p, alpha, 0.001f)
+        }
+    }
 
-        // Test heavy pressure (firm press = dark/dense)
-        val (rHigh, alphaHigh) = TouchInputHandler.computeEffectiveRadiusAndOpacity(
-            toolMode = SmartDrawView.ToolMode.PENCIL,
-            baseRadius = baseRadius,
-            baseOpacity = baseOpacity,
-            pressure = 0.85f
+    @Test
+    fun testRendererStrokeRadiiConstantForPenAndPencil() {
+        val renderer = SmartDrawRenderer(256, 256)
+        val baseRadius = 16.0f
+
+        // Curve with varying touch pressures from light (0.1) to firm (0.95)
+        val p0 = Point2D(10f, 10f, 0.1f)
+        val p1 = Point2D(50f, 50f, 0.5f)
+        val p2 = Point2D(100f, 100f, 0.95f)
+        val curve = BezierCurve.Quadratic(p0, p1, p2)
+
+        // 1. PEN: activeStrokeRadii must be strictly constant across all sampled points
+        renderer.clearActiveStroke()
+        renderer.drawActiveStrokeSegment(
+            curve = curve,
+            radius = baseRadius,
+            opacity = 1.0f,
+            previewColor = Color.BLACK,
+            spacingRatio = 0.2f,
+            toolMode = SmartDrawView.ToolMode.PEN
         )
-        assertEquals(baseRadius, rHigh, 0.001f)
-        assertEquals(baseOpacity * 0.85f, alphaHigh, 0.001f)
+        assertTrue(renderer.activeStrokeRadii.isNotEmpty())
+        for (r in renderer.activeStrokeRadii) {
+            assertEquals("PEN activeStrokeRadii must be strictly constant", baseRadius, r, 0.001f)
+        }
+
+        // 2. PENCIL: activeStrokeRadii must be strictly constant across all sampled points
+        renderer.clearActiveStroke()
+        renderer.drawActiveStrokeSegment(
+            curve = curve,
+            radius = baseRadius,
+            opacity = 1.0f,
+            previewColor = Color.BLACK,
+            spacingRatio = 0.2f,
+            toolMode = SmartDrawView.ToolMode.PENCIL
+        )
+        assertTrue(renderer.activeStrokeRadii.isNotEmpty())
+        for (r in renderer.activeStrokeRadii) {
+            assertEquals("PENCIL activeStrokeRadii must be strictly constant", baseRadius, r, 0.001f)
+        }
+
+        // 3. PAINTBRUSH: activeStrokeRadii must modulate with touch pressure
+        renderer.clearActiveStroke()
+        renderer.drawActiveStrokeSegment(
+            curve = curve,
+            radius = baseRadius,
+            opacity = 1.0f,
+            previewColor = Color.BLACK,
+            spacingRatio = 0.2f,
+            toolMode = SmartDrawView.ToolMode.PAINTBRUSH
+        )
+        assertTrue(renderer.activeStrokeRadii.isNotEmpty())
+        val distinctRadii = renderer.activeStrokeRadii.toSet()
+        assertTrue("PAINTBRUSH activeStrokeRadii must vary with pressure", distinctRadii.size > 1)
     }
 
     @Test
