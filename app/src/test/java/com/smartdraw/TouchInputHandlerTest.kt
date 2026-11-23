@@ -20,7 +20,8 @@ class TouchInputHandlerTest {
         x: Float,
         y: Float,
         toolType: Int,
-        pressure: Float = 0.5f
+        pressure: Float = 0.5f,
+        buttonState: Int = 0
     ): MotionEvent {
         val pp = MotionEvent.PointerProperties().apply {
             id = 0
@@ -42,7 +43,7 @@ class TouchInputHandlerTest {
             arrayOf(pp),
             arrayOf(pc),
             0,
-            0,
+            buttonState,
             1f,
             1f,
             0,
@@ -130,5 +131,127 @@ class TouchInputHandlerTest {
         val handledDown = handler.handleTouchEvent(downEvent)
         assertTrue("Eraser touch down should be handled", handledDown)
         assertTrue(handler.isStylusActive)
+    }
+
+    @Test
+    fun testHardwareEraserToolTypeTriggersEraserMode() {
+        val handler = TouchInputHandler(
+            toolMode = SmartDrawView.ToolMode.PAINTBRUSH,
+            onStrokeSegment = { _, _, _ -> }
+        )
+        assertFalse(handler.isHardwareEraserActive)
+        assertEquals(SmartDrawView.ToolMode.PAINTBRUSH, handler.effectiveToolMode)
+
+        val downEvent = createMotionEvent(MotionEvent.ACTION_DOWN, 50f, 50f, MotionEvent.TOOL_TYPE_ERASER)
+        handler.handleTouchEvent(downEvent)
+
+        assertTrue(handler.isStylusActive)
+        assertTrue(handler.isHardwareEraserActive)
+        assertEquals(SmartDrawView.ToolMode.ERASER, handler.effectiveToolMode)
+
+        val upEvent = createMotionEvent(MotionEvent.ACTION_UP, 50f, 50f, MotionEvent.TOOL_TYPE_ERASER)
+        handler.handleTouchEvent(upEvent)
+
+        assertFalse(handler.isStylusActive)
+        assertFalse(handler.isHardwareEraserActive)
+        assertEquals(SmartDrawView.ToolMode.PAINTBRUSH, handler.effectiveToolMode)
+    }
+
+    @Test
+    fun testStylusButtonTriggersHardwareEraserMode() {
+        val handler = TouchInputHandler(
+            toolMode = SmartDrawView.ToolMode.PEN,
+            onStrokeSegment = { _, _, _ -> }
+        )
+
+        // Down with primary stylus button held
+        val downPrimary = createMotionEvent(
+            MotionEvent.ACTION_DOWN,
+            50f,
+            50f,
+            MotionEvent.TOOL_TYPE_STYLUS,
+            buttonState = MotionEvent.BUTTON_STYLUS_PRIMARY
+        )
+        handler.handleTouchEvent(downPrimary)
+
+        assertTrue(handler.isStylusActive)
+        assertTrue(handler.isHardwareEraserActive)
+        assertEquals(SmartDrawView.ToolMode.ERASER, handler.effectiveToolMode)
+
+        val upPrimary = createMotionEvent(MotionEvent.ACTION_UP, 50f, 50f, MotionEvent.TOOL_TYPE_STYLUS)
+        handler.handleTouchEvent(upPrimary)
+        assertFalse(handler.isHardwareEraserActive)
+        assertEquals(SmartDrawView.ToolMode.PEN, handler.effectiveToolMode)
+
+        // Down with secondary stylus button held
+        val downSecondary = createMotionEvent(
+            MotionEvent.ACTION_DOWN,
+            60f,
+            60f,
+            MotionEvent.TOOL_TYPE_STYLUS,
+            buttonState = MotionEvent.BUTTON_STYLUS_SECONDARY
+        )
+        handler.handleTouchEvent(downSecondary)
+
+        assertTrue(handler.isHardwareEraserActive)
+        assertEquals(SmartDrawView.ToolMode.ERASER, handler.effectiveToolMode)
+
+        val upSecondary = createMotionEvent(MotionEvent.ACTION_UP, 60f, 60f, MotionEvent.TOOL_TYPE_STYLUS)
+        handler.handleTouchEvent(upSecondary)
+        assertFalse(handler.isHardwareEraserActive)
+    }
+
+    @Test
+    fun testHardwareEraserUsesEraserRadiusAndOpacity() {
+        var emittedRadius = 0f
+        var emittedOpacity = 0f
+
+        val handler = TouchInputHandler(
+            baseRadius = 5.0f,
+            baseOpacity = 0.5f,
+            eraserRadius = 30.0f,
+            eraserOpacity = 1.0f,
+            toolMode = SmartDrawView.ToolMode.PEN,
+            onStrokeSegment = { _, r, o ->
+                emittedRadius = r
+                emittedOpacity = o
+            }
+        )
+
+        // Normal stroke: uses PEN (baseRadius=5f, baseOpacity=0.5f, constant pressure)
+        val downPen = createMotionEvent(MotionEvent.ACTION_DOWN, 10f, 10f, MotionEvent.TOOL_TYPE_STYLUS, pressure = 0.5f)
+        handler.handleTouchEvent(downPen)
+        val movePen = createMotionEvent(MotionEvent.ACTION_MOVE, 20f, 20f, MotionEvent.TOOL_TYPE_STYLUS, pressure = 0.5f)
+        handler.handleTouchEvent(movePen)
+        val upPen = createMotionEvent(MotionEvent.ACTION_UP, 30f, 30f, MotionEvent.TOOL_TYPE_STYLUS, pressure = 0.5f)
+        handler.handleTouchEvent(upPen)
+
+        assertEquals(5.0f, emittedRadius, 0.001f)
+        assertEquals(0.5f, emittedOpacity, 0.001f)
+
+        // Hardware eraser stroke with full pressure: uses ERASER (eraserRadius=30f, eraserOpacity=1.0f)
+        val downEraser = createMotionEvent(
+            MotionEvent.ACTION_DOWN,
+            10f,
+            10f,
+            MotionEvent.TOOL_TYPE_STYLUS,
+            pressure = 1.0f,
+            buttonState = MotionEvent.BUTTON_STYLUS_PRIMARY
+        )
+        handler.handleTouchEvent(downEraser)
+        val moveEraser = createMotionEvent(
+            MotionEvent.ACTION_MOVE,
+            20f,
+            20f,
+            MotionEvent.TOOL_TYPE_STYLUS,
+            pressure = 1.0f,
+            buttonState = MotionEvent.BUTTON_STYLUS_PRIMARY
+        )
+        handler.handleTouchEvent(moveEraser)
+        val upEraser = createMotionEvent(MotionEvent.ACTION_UP, 30f, 30f, MotionEvent.TOOL_TYPE_STYLUS, pressure = 1.0f)
+        handler.handleTouchEvent(upEraser)
+
+        assertEquals(30.0f, emittedRadius, 0.001f)
+        assertEquals(1.0f, emittedOpacity, 0.001f)
     }
 }

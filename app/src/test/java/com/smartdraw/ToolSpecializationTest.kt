@@ -32,9 +32,10 @@ class ToolSpecializationTest {
     @Test
     fun testToolModeEnumValues() {
         val modes = SmartDrawView.ToolMode.values()
-        assertEquals(3, modes.size)
+        assertEquals(4, modes.size)
         assertTrue(modes.contains(SmartDrawView.ToolMode.PAINTBRUSH))
         assertTrue(modes.contains(SmartDrawView.ToolMode.PEN))
+        assertTrue(modes.contains(SmartDrawView.ToolMode.ERASER))
         assertTrue(modes.contains(SmartDrawView.ToolMode.SMUDGE))
     }
 
@@ -67,6 +68,31 @@ class ToolSpecializationTest {
         // Test max pressure
         val (rHigh, alphaHigh) = TouchInputHandler.computeEffectiveRadiusAndOpacity(
             toolMode = SmartDrawView.ToolMode.PAINTBRUSH,
+            baseRadius = baseRadius,
+            baseOpacity = baseOpacity,
+            pressure = 1.0f
+        )
+        assertEquals(baseRadius * 1.0f, rHigh, 0.001f)
+        assertEquals(baseOpacity, alphaHigh, 0.001f)
+    }
+
+    @Test
+    fun testPressureTransferFunctionEraser() {
+        // Eraser: R = baseRadius * pressure, Opacity = baseOpacity (constant)
+        val baseRadius = 20.0f
+        val baseOpacity = 1.0f
+
+        val (rLow, alphaLow) = TouchInputHandler.computeEffectiveRadiusAndOpacity(
+            toolMode = SmartDrawView.ToolMode.ERASER,
+            baseRadius = baseRadius,
+            baseOpacity = baseOpacity,
+            pressure = 0.25f
+        )
+        assertEquals(baseRadius * 0.25f, rLow, 0.001f)
+        assertEquals(baseOpacity, alphaLow, 0.001f)
+
+        val (rHigh, alphaHigh) = TouchInputHandler.computeEffectiveRadiusAndOpacity(
+            toolMode = SmartDrawView.ToolMode.ERASER,
             baseRadius = baseRadius,
             baseOpacity = baseOpacity,
             pressure = 1.0f
@@ -176,6 +202,12 @@ class ToolSpecializationTest {
         val loadedPencil = pm.loadProject(project.id)
         assertEquals("PENCIL", loadedPencil.project.activeTool)
 
+        // Test ERASER
+        project.activeTool = "ERASER"
+        pm.saveProject(project, dummyBmp, null, isDirty = true)
+        val loadedEraser = pm.loadProject(project.id)
+        assertEquals("ERASER", loadedEraser.project.activeTool)
+
         // Test SMUDGE
         project.activeTool = "SMUDGE"
         pm.saveProject(project, dummyBmp, null, isDirty = true)
@@ -208,6 +240,11 @@ class ToolSpecializationTest {
         activity.onToolSelected(SmartDrawView.ToolMode.PEN)
         assertEquals(SmartDrawView.ToolMode.PEN, drawView.toolMode)
         assertEquals("Active Tool: Pen (Tap for settings)", btnActiveTool.contentDescription)
+
+        // Select Eraser
+        activity.onToolSelected(SmartDrawView.ToolMode.ERASER)
+        assertEquals(SmartDrawView.ToolMode.ERASER, drawView.toolMode)
+        assertEquals("Active Tool: Eraser (Tap for settings)", btnActiveTool.contentDescription)
 
         // Select Smudge
         activity.onToolSelected(SmartDrawView.ToolMode.SMUDGE)
@@ -290,6 +327,15 @@ class ToolSpecializationTest {
         assertEquals(1.0f, drawView.brushOpacity, 0.001f)
         assertEquals(0.5f, drawView.getToolRadius(SmartDrawView.ToolMode.PEN), 0.001f)
 
+        // Switch to ERASER
+        drawView.toolMode = SmartDrawView.ToolMode.ERASER
+        assertEquals(SmartDrawView.ToolMode.ERASER, drawView.toolMode)
+        drawView.setBrushSize(25.0f)
+        drawView.brushOpacity = 0.9f
+        assertEquals(25.0f, drawView.getBrushSize(), 0.001f)
+        assertEquals(0.9f, drawView.brushOpacity, 0.001f)
+        assertEquals(25.0f, drawView.getToolRadius(SmartDrawView.ToolMode.ERASER), 0.001f)
+
         // Switch to SMUDGE
         drawView.toolMode = SmartDrawView.ToolMode.SMUDGE
         assertEquals(SmartDrawView.ToolMode.SMUDGE, drawView.toolMode)
@@ -309,6 +355,11 @@ class ToolSpecializationTest {
         assertEquals(0.5f, drawView.getBrushSize(), 0.001f)
         assertEquals(1.0f, drawView.brushOpacity, 0.001f)
 
+        // Switch back to ERASER: must restore 25.0px and 0.9 opacity
+        drawView.toolMode = SmartDrawView.ToolMode.ERASER
+        assertEquals(25.0f, drawView.getBrushSize(), 0.001f)
+        assertEquals(0.9f, drawView.brushOpacity, 0.001f)
+
         // Switch back to SMUDGE: must restore 35.0px and 0.4 opacity
         drawView.toolMode = SmartDrawView.ToolMode.SMUDGE
         assertEquals(35.0f, drawView.getBrushSize(), 0.001f)
@@ -327,11 +378,13 @@ class ToolSpecializationTest {
         val toolRadii = mutableMapOf(
             SmartDrawView.ToolMode.PAINTBRUSH to 10.0f,
             SmartDrawView.ToolMode.PEN to 0.5f,
+            SmartDrawView.ToolMode.ERASER to 25.0f,
             SmartDrawView.ToolMode.SMUDGE to 35.0f
         )
         val toolOpacities = mutableMapOf(
             SmartDrawView.ToolMode.PAINTBRUSH to 0.8f,
             SmartDrawView.ToolMode.PEN to 1.0f,
+            SmartDrawView.ToolMode.ERASER to 0.9f,
             SmartDrawView.ToolMode.SMUDGE to 0.4f
         )
 
@@ -365,6 +418,7 @@ class ToolSpecializationTest {
         val view = sheet.requireView()
         val cardPen: LinearLayout = view.findViewById(R.id.cardToolPen)
         val cardBrush: LinearLayout = view.findViewById(R.id.cardToolBrush)
+        val cardEraser: LinearLayout = view.findViewById(R.id.cardToolEraser)
         val cardSmudge: LinearLayout = view.findViewById(R.id.cardToolSmudge)
         val textSizeValue: TextView = view.findViewById(R.id.textSizeValue)
         val textOpacityValue: TextView = view.findViewById(R.id.textBrushOpacityValue)
@@ -381,6 +435,13 @@ class ToolSpecializationTest {
         assertEquals("0.5 px", textSizeValue.text)
         assertEquals("100%", textOpacityValue.text)
         assertEquals(0.5f, brushPreview.brushRadius, 0.001f)
+
+        // Switch to Eraser: should immediately sync sliders to 25px, 90%
+        cardEraser.performClick()
+        assertEquals(SmartDrawView.ToolMode.ERASER, selectedTool)
+        assertEquals("25 px", textSizeValue.text)
+        assertEquals("90%", textOpacityValue.text)
+        assertEquals(25.0f, brushPreview.brushRadius, 0.001f)
 
         // Switch to Smudge: should immediately sync sliders to 35px, 40%
         cardSmudge.performClick()
@@ -408,9 +469,11 @@ class ToolSpecializationTest {
         project.brushSize = 0.5f
         project.brushSizeBrush = 12.0f
         project.brushSizePen = 0.5f
+        project.brushSizeEraser = 22.0f
         project.brushSizeSmudge = 45.0f
         project.brushOpacityBrush = 0.75f
         project.brushOpacityPen = 1.0f
+        project.brushOpacityEraser = 0.85f
         project.brushOpacitySmudge = 0.35f
 
         pm.saveProject(project, dummyBmp, null, isDirty = true)
@@ -421,9 +484,11 @@ class ToolSpecializationTest {
         assertEquals(0.5f, loaded.brushSize, 0.001f)
         assertEquals(12.0f, loaded.brushSizeBrush, 0.001f)
         assertEquals(0.5f, loaded.brushSizePen, 0.001f)
+        assertEquals(22.0f, loaded.brushSizeEraser, 0.001f)
         assertEquals(45.0f, loaded.brushSizeSmudge, 0.001f)
         assertEquals(0.75f, loaded.brushOpacityBrush, 0.001f)
         assertEquals(1.0f, loaded.brushOpacityPen, 0.001f)
+        assertEquals(0.85f, loaded.brushOpacityEraser, 0.001f)
         assertEquals(0.35f, loaded.brushOpacitySmudge, 0.001f)
     }
 }

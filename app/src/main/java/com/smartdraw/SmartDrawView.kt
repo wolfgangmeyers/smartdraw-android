@@ -25,17 +25,20 @@ class SmartDrawView @JvmOverloads constructor(
     enum class ToolMode {
         PAINTBRUSH,
         PEN,
+        ERASER,
         SMUDGE
     }
 
     val toolRadii = mutableMapOf<ToolMode, Float>(
         ToolMode.PAINTBRUSH to 20.0f,
         ToolMode.PEN to 1.0f,
+        ToolMode.ERASER to 20.0f,
         ToolMode.SMUDGE to 30.0f
     )
     val toolOpacities = mutableMapOf<ToolMode, Float>(
         ToolMode.PAINTBRUSH to 1.0f,
         ToolMode.PEN to 1.0f,
+        ToolMode.ERASER to 1.0f,
         ToolMode.SMUDGE to 0.5f
     )
 
@@ -80,6 +83,9 @@ class SmartDrawView @JvmOverloads constructor(
             val clamped = value.coerceIn(0.5f, 100.0f)
             field = clamped
             toolRadii[toolMode] = clamped
+            if (toolMode == ToolMode.ERASER && ::touchHandler.isInitialized) {
+                touchHandler.eraserRadius = clamped
+            }
             if (::touchHandler.isInitialized) {
                 touchHandler.baseRadius = clamped
             }
@@ -90,6 +96,9 @@ class SmartDrawView @JvmOverloads constructor(
             val clamped = value.coerceIn(0.01f, 1.0f)
             field = clamped
             toolOpacities[toolMode] = clamped
+            if (toolMode == ToolMode.ERASER && ::touchHandler.isInitialized) {
+                touchHandler.eraserOpacity = clamped
+            }
             if (::touchHandler.isInitialized) {
                 touchHandler.baseOpacity = clamped
             }
@@ -203,10 +212,15 @@ class SmartDrawView @JvmOverloads constructor(
         }
     }
 
+    val effectiveToolMode: ToolMode
+        get() = if (::touchHandler.isInitialized) touchHandler.effectiveToolMode else toolMode
+
     init {
         touchHandler = TouchInputHandler(
             baseRadius = brushRadius,
             baseOpacity = brushOpacity,
+            eraserRadius = toolRadii[ToolMode.ERASER] ?: 20.0f,
+            eraserOpacity = toolOpacities[ToolMode.ERASER] ?: 1.0f,
             toolMode = toolMode,
             screenToCanvasTransformer = { sx, sy ->
                 screenToCanvas(sx, sy)
@@ -215,6 +229,7 @@ class SmartDrawView @JvmOverloads constructor(
                 screenToCanvas(sx, sy)
             },
             onStrokeStart = { pt ->
+                val activeMode = touchHandler.effectiveToolMode
                 val preview = if (useReferenceColors) {
                     rendererInstance?.referenceLayer?.sampleColor(
                         canvasX = pt.x,
@@ -230,27 +245,28 @@ class SmartDrawView @JvmOverloads constructor(
                 queueEvent {
                     val r = rendererInstance ?: return@queueEvent
                     r.beginStrokeCapture()
-                    if (toolMode != ToolMode.SMUDGE) {
+                    if (activeMode != ToolMode.SMUDGE && activeMode != ToolMode.ERASER) {
                         r.beginActiveStroke(preview)
                     }
                     requestRender()
                 }
             },
             onStrokeSegment = { curve, radius, opacity ->
+                val activeMode = touchHandler.effectiveToolMode
                 queueEvent {
                     val r = rendererInstance ?: return@queueEvent
-                    when (toolMode) {
+                    when (activeMode) {
                         ToolMode.PAINTBRUSH,
                         ToolMode.PEN -> {
-                            val segRadius = brushRadius
-                            val segOpacity = brushOpacity
+                            val segRadius = if (activeMode == ToolMode.PEN) getToolRadius(ToolMode.PEN) else brushRadius
+                            val segOpacity = if (activeMode == ToolMode.PEN) getToolOpacity(ToolMode.PEN) else brushOpacity
                             r.drawActiveStrokeSegment(
                                 curve = curve,
                                 radius = segRadius,
                                 opacity = segOpacity,
                                 previewColor = activeStrokeStartColor,
                                 spacingRatio = 0.2f,
-                                toolMode = toolMode
+                                toolMode = activeMode
                             )
                         }
                         ToolMode.SMUDGE -> {
@@ -262,15 +278,26 @@ class SmartDrawView @JvmOverloads constructor(
                                 spacingRatio = 0.2f
                             )
                         }
+                        ToolMode.ERASER -> {
+                            val eraseR = getToolRadius(ToolMode.ERASER)
+                            val eraseO = getToolOpacity(ToolMode.ERASER)
+                            r.eraseBezier(
+                                curve = curve,
+                                radius = eraseR,
+                                opacity = eraseO,
+                                spacingRatio = 0.2f
+                            )
+                        }
                     }
                     requestRender()
                 }
             },
             onStrokeEnd = {
+                val activeMode = touchHandler.effectiveToolMode
                 queueEvent {
                     val r = rendererInstance ?: return@queueEvent
                     var committed = true
-                    if (toolMode != ToolMode.SMUDGE) {
+                    if (activeMode != ToolMode.SMUDGE && activeMode != ToolMode.ERASER) {
                         committed = r.endActiveStroke(
                             useReferenceColors = useReferenceColors,
                             defaultColor = brushColor,
@@ -278,6 +305,7 @@ class SmartDrawView @JvmOverloads constructor(
                         )
                     } else {
                         r.commitUndoDiff()
+                        r.clearActiveStroke()
                     }
                     val canUndo = r.canUndo()
                     val canRedo = r.canRedo()
@@ -289,8 +317,18 @@ class SmartDrawView @JvmOverloads constructor(
                 }
             },
             onStrokeCancel = {
+                val activeMode = touchHandler.effectiveToolMode
                 queueEvent {
-                    rendererInstance?.clearActiveStroke()
+                    val r = rendererInstance ?: return@queueEvent
+                    if (activeMode == ToolMode.SMUDGE || activeMode == ToolMode.ERASER) {
+                        r.commitUndoDiff()
+                        r.clearActiveStroke()
+                    } else {
+                        r.clearActiveStroke()
+                    }
+                    val canUndo = r.canUndo()
+                    val canRedo = r.canRedo()
+                    updateHistoryState(canUndo, canRedo)
                     requestRender()
                 }
             }
@@ -486,6 +524,9 @@ class SmartDrawView @JvmOverloads constructor(
     fun setToolRadius(mode: ToolMode, radius: Float) {
         val clamped = radius.coerceIn(0.5f, 100.0f)
         toolRadii[mode] = clamped
+        if (mode == ToolMode.ERASER && ::touchHandler.isInitialized) {
+            touchHandler.eraserRadius = clamped
+        }
         if (toolMode == mode) {
             brushRadius = clamped
         }
@@ -496,6 +537,9 @@ class SmartDrawView @JvmOverloads constructor(
     fun setToolOpacity(mode: ToolMode, opacity: Float) {
         val clamped = opacity.coerceIn(0.01f, 1.0f)
         toolOpacities[mode] = clamped
+        if (mode == ToolMode.ERASER && ::touchHandler.isInitialized) {
+            touchHandler.eraserOpacity = clamped
+        }
         if (toolMode == mode) {
             brushOpacity = clamped
         }

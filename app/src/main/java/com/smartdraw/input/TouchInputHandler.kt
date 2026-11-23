@@ -22,6 +22,8 @@ import kotlin.math.pow
 class TouchInputHandler(
     var baseRadius: Float = 20.0f,
     var baseOpacity: Float = 1.0f,
+    var eraserRadius: Float = 20.0f,
+    var eraserOpacity: Float = 1.0f,
     var pressureGamma: Float = 1.0f,
     var minPressureFactor: Float = 0.1f,
     var toolMode: SmartDrawView.ToolMode = SmartDrawView.ToolMode.PAINTBRUSH,
@@ -33,6 +35,9 @@ class TouchInputHandler(
     private val onStrokeCancel: (() -> Unit)? = null
 ) {
     companion object {
+        private const val STYLUS_ERASER_BUTTONS =
+            MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_STYLUS_SECONDARY
+
         fun computeEffectiveRadiusAndOpacity(
             toolMode: SmartDrawView.ToolMode,
             baseRadius: Float,
@@ -43,6 +48,7 @@ class TouchInputHandler(
             return when (toolMode) {
                 SmartDrawView.ToolMode.PAINTBRUSH -> Pair(baseRadius * p, baseOpacity)
                 SmartDrawView.ToolMode.PEN -> Pair(baseRadius, baseOpacity)
+                SmartDrawView.ToolMode.ERASER -> Pair(baseRadius * p, baseOpacity)
                 SmartDrawView.ToolMode.SMUDGE -> Pair(baseRadius * p, baseOpacity * p)
             }
         }
@@ -55,13 +61,22 @@ class TouchInputHandler(
     val isStylusActive: Boolean
         get() = activeStylusPointerId != null
 
+    var isHardwareEraserActive: Boolean = false
+        private set
+
+    val effectiveToolMode: SmartDrawView.ToolMode
+        get() = if (isHardwareEraserActive) SmartDrawView.ToolMode.ERASER else toolMode
+
     private val smoother = StrokeSmoother { curve ->
         // Evaluate dynamic radius and opacity from curve endpoints according to active tool mode dynamics
         val avgPressure = ((curve.start.pressure + curve.end.pressure) * 0.5f).coerceIn(0.05f, 1.0f)
+        val activeMode = effectiveToolMode
+        val curBaseRadius = if (isHardwareEraserActive) eraserRadius else baseRadius
+        val curBaseOpacity = if (isHardwareEraserActive) eraserOpacity else baseOpacity
         val (dynamicRadius, dynamicOpacity) = computeEffectiveRadiusAndOpacity(
-            toolMode = toolMode,
-            baseRadius = baseRadius,
-            baseOpacity = baseOpacity,
+            toolMode = activeMode,
+            baseRadius = curBaseRadius,
+            baseOpacity = curBaseOpacity,
             pressure = avgPressure
         )
         onStrokeSegment(curve, dynamicRadius, dynamicOpacity)
@@ -74,6 +89,9 @@ class TouchInputHandler(
                 if (isStylusTool(toolType)) {
                     val pointerId = event.getPointerId(0)
                     activeStylusPointerId = pointerId
+                    val isHardwareEraser = (toolType == MotionEvent.TOOL_TYPE_ERASER) ||
+                        ((event.buttonState and STYLUS_ERASER_BUTTONS) != 0)
+                    isHardwareEraserActive = isHardwareEraser
                     val (cx, cy) = transformCoords(event.x, event.y)
                     val p = normalizePressure(event.pressure)
                     val pt = Point2D(cx, cy, p)
@@ -93,6 +111,9 @@ class TouchInputHandler(
                 if (isStylusTool(toolType) && activeStylusPointerId == null) {
                     val pointerId = event.getPointerId(actionIndex)
                     activeStylusPointerId = pointerId
+                    val isHardwareEraser = (toolType == MotionEvent.TOOL_TYPE_ERASER) ||
+                        ((event.buttonState and STYLUS_ERASER_BUTTONS) != 0)
+                    isHardwareEraserActive = isHardwareEraser
                     val (cx, cy) = transformCoords(event.getX(actionIndex), event.getY(actionIndex))
                     val p = normalizePressure(event.getPressure(actionIndex))
                     val pt = Point2D(cx, cy, p)
@@ -107,6 +128,13 @@ class TouchInputHandler(
                 val stylusId = activeStylusPointerId ?: return false
                 val pointerIndex = event.findPointerIndex(stylusId)
                 if (pointerIndex == -1) return false
+
+                val toolType = event.getToolType(pointerIndex)
+                if (toolType == MotionEvent.TOOL_TYPE_ERASER ||
+                    ((event.buttonState and STYLUS_ERASER_BUTTONS) != 0)
+                ) {
+                    isHardwareEraserActive = true
+                }
 
                 // Process historical points for the active stylus pointer
                 val historySize = event.historySize
@@ -135,6 +163,7 @@ class TouchInputHandler(
                     smoother.onPointUp(Point2D(cx, cy, p))
                     activeStylusPointerId = null
                     onStrokeEnd?.invoke()
+                    isHardwareEraserActive = false
                     return true
                 }
                 return activeStylusPointerId != null
@@ -153,6 +182,7 @@ class TouchInputHandler(
                     }
                     activeStylusPointerId = null
                     onStrokeEnd?.invoke()
+                    isHardwareEraserActive = false
                     return true
                 }
                 return false
@@ -163,6 +193,7 @@ class TouchInputHandler(
                     smoother.reset()
                     activeStylusPointerId = null
                     onStrokeCancel?.invoke() ?: onStrokeEnd?.invoke()
+                    isHardwareEraserActive = false
                     return true
                 }
                 return false
@@ -176,6 +207,7 @@ class TouchInputHandler(
             smoother.reset()
             activeStylusPointerId = null
             onStrokeCancel?.invoke() ?: onStrokeEnd?.invoke()
+            isHardwareEraserActive = false
         }
     }
 
