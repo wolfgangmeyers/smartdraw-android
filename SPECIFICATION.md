@@ -8,9 +8,16 @@ Complete technical and behavioral architecture specification for the native Andr
 
 SmartDraw Android is a high-performance native Android painting application designed for assisted and reference-guided painting. It faithfully reproduces the WebGL shader rendering model of the original SmartDraw web application while adding first-class mobile capabilities:
 
-- **Hardware-Accelerated GLES 3.0 Pipeline**: Offscreen Framebuffer Objects (FBOs) and custom GLSL fragment shaders reproducing circle brush stamping, directional color smudging, reference image overlay blending, and composite output.
+- **Hardware-Accelerated GLES 3.0 Pipeline**: Offscreen Framebuffer Objects (FBOs) and custom GLSL fragment shaders reproducing circle brush stamping, directional color smudging, reference image overlay blending, destination-alpha subtraction erasing, and composite output.
 - **Stylus & Touch Pressure Dynamics**: Real-time continuous sampling of `MotionEvent.getPressure()`, historical batch events, and customizable pressure response curves (linear, sigmoid, power) mapped to brush radius and opacity.
 - **Stylus / Pen-Only Drawing & Palm Rejection**: Explicit discrimination of hardware input tools (`TOOL_TYPE_STYLUS` / `TOOL_TYPE_ERASER` vs `TOOL_TYPE_FINGER`). Paint strokes are strictly emitted by active/passive styluses; single finger touches and resting palms are rejected without emitting paint.
+- **Hardware S-Pen Eraser Integration**: Automatic detection of stylus tail/eraser (`TOOL_TYPE_ERASER`) and barrel side-buttons (`BUTTON_STYLUS_PRIMARY` / `BUTTON_STYLUS_SECONDARY`), temporarily routing strokes through dedicated eraser radius and alpha-subtraction blending without manual UI switching.
+- **Hard Eraser Tool**: Antialiased destination-alpha subtraction blending (`GL_ZERO, GL_ONE_MINUS_SRC_ALPHA`) carving out pixel opacity from the active layer FBO down to full transparency, with complete undo/redo fidelity.
+- **Tool Specialization & Independent Geometry**: Distinct drawing tools (**Paintbrush**, **Pen**, **Eraser**, **Smudge**) with specialized pressure dynamics (e.g. Pen with zero pressure modulation and sub-pixel precision down to 0.5px; Paintbrush with linear pressure-to-radius modulation) and independent per-tool radius and opacity memory restored seamlessly upon tool switching.
+- **Multi-Layer Management**: Dedicated GLES multi-layer composition stack supporting creation, layer selection, fast GPU duplication (`glBlitFramebuffer`), reordering, merge-down, per-layer opacity modulation, and safe deletion with confirmation dialogs.
+- **Manual Color Selection & Live Eyedropper**: Dedicated color bottom sheet featuring dual RGB and HSL slider sets with bidirectional synchronization, live swatch display, and a one-tap toolbar eyedropper for real-time on-canvas pixel sampling.
+- **Floating Canvas Undo & Redo**: Accessible bottom-left and bottom-right circular floating action buttons backed by a high-performance stack capturing minimal bounding square sub-rectangle diffs (`SubRectDiff`), maintaining 60–120 FPS without duplicating full megapixel textures.
+- **Decluttered Top Toolbar & Overflow Sheet**: Streamlined 6-button top toolbar with secondary controls (Reset Canvas View, Load/Change Source Image, Source Opacity/Visibility, Ratchet Mode toggle, Canvas Clear) neatly consolidated into the More Options overflow sheet.
 - **Two-Finger Fluid Viewport Navigation**: Smooth 2D affine viewport transformation (pan and pinch-to-zoom centered on gesture focal point) driven strictly by two-finger gestures, accompanied by instant viewport reset controls.
 - **Coordinate Transformation Pipeline**: Exact mathematical mapping bridging Screen Space $(x_s, y_s)$, Canvas Space $(x_c, y_c)$, and Reference Image Space $(x_r, y_r)$, with MVP matrix integration in the GLES 3.0 compositing pass.
 - **Bezier Curve Stroke Smoothing**: Multi-point quadratic and cubic Bezier curve fitting with arc-length parameterization to guarantee uniform stamp spacing independent of touch sampling frequency or drawing speed.
@@ -207,6 +214,40 @@ To prevent race conditions, dropped textures, or null pointer exceptions:
 - When `onSurfaceCreated(gl, config)` fires inside the active EGL render context, `SmartDrawView` instantiates `SmartDrawRenderer` and drains the pending queue, uploading textures to the GPU and recycling temporary bitmap references.
 - Guarantees seamless, zero-glitch project restoration upon cold start or process resurrection.
 
+### 3.5 Hard Eraser Shader Pipeline & Destination-Alpha Subtraction Blending (`SmartDrawRenderer.kt`)
+
+The Hard Eraser tool provides destructive, antialiased pixel erasure down to complete transparency (`0x00000000`), allowing underlying canvas layers or the solid background color to show through seamlessly.
+
+#### 3.5.1 Destination-Alpha Subtraction Blending Model
+Standard brush stamping adds premultiplied color and opacity to the target framebuffer. In contrast, the eraser tool utilizes separate alpha-subtraction blending to attenuate both color and alpha channels in proportion to the brush stamp's shape and opacity:
+
+```kotlin
+GLES30.glEnable(GLES30.GL_BLEND)
+GLES30.glBlendFuncSeparate(
+    GLES30.GL_ZERO,                 // srcRGB factor
+    GLES30.GL_ONE_MINUS_SRC_ALPHA,  // dstRGB factor
+    GLES30.GL_ZERO,                 // srcAlpha factor
+    GLES30.GL_ONE_MINUS_SRC_ALPHA   // dstAlpha factor
+)
+```
+
+Mathematically, given destination pixel $(\text{dst}_{\text{RGB}}, \text{dst}_\alpha)$ and incoming brush stamp $(\text{src}_{\text{RGB}}, \text{src}_\alpha)$ where $\text{src}_\alpha = \text{opacity} \times \text{falloff}$:
+$$\text{dst}'_{\text{RGB}} = 0 \cdot \text{src}_{\text{RGB}} + (1 - \text{src}_\alpha) \cdot \text{dst}_{\text{RGB}} = (1 - \text{src}_\alpha) \cdot \text{dst}_{\text{RGB}}$$
+$$\text{dst}'_\alpha = 0 \cdot \text{src}_\alpha + (1 - \text{src}_\alpha) \cdot \text{dst}_\alpha = (1 - \text{src}_\alpha) \cdot \text{dst}_\alpha$$
+
+When $\text{src}_\alpha = 1.0$ (at the core of an opaque stamp), both destination color and alpha are scaled by $(1 - 1.0) = 0.0$, completely erasing the pixel to $(0, 0, 0, 0)$ transparent black. At the antialiased perimeter of the brush disc, the smoothstep falloff guarantees smooth, antialiased edges without fringing or jagged artifacts.
+
+#### 3.5.2 Execution Pipeline (`erasePoint`, `eraseLine`, `eraseBezier`)
+Unlike standard paint strokes that accumulate in `activeStrokeFbo` before being stamped into `baseFbo`, eraser operations modify the active layer's `baseFbo` directly in real time:
+- `erasePoint(x, y, radius, opacity, pressure)`: Binds `baseFbo`, enables the alpha-subtraction blend mode, renders a single antialiased stamp via `brushShader.renderStamp()`, and records the point for undo tracking.
+- `eraseLine(x1, y1, x2, y2, radius, opacity, spacingRatio)`: Strides along the line segment at intervals of $\max(0.5, \text{radius} \times \text{spacingRatio})$, rendering antialiased eraser stamps at each step.
+- `eraseBezier(curve, radius, opacity, spacingRatio)`: Uniformly samples the cubic or quadratic Bezier spline and stamps antialiased eraser circles directly into `baseFbo`.
+
+#### 3.5.3 Premultiplied Alpha Multi-Layer Composition
+Because layer FBOs contain transparent and partially erased regions, the compositing shader (`CompositingShader.kt`) uses premultiplied alpha blending:
+$$\text{dst} = \text{src} \cdot \alpha_{\text{layer}} + \text{dst} \cdot (1 - \text{src}_\alpha \cdot \alpha_{\text{layer}})$$
+This guarantees that transparent areas carved out by the eraser reveal underlying canvas layers and the canvas background quad without dark haloes or saturation artifacts.
+
 ---
 
 ## 4. Input Architecture, Stylus Drawing & Viewport Navigation
@@ -221,7 +262,24 @@ To deliver professional-grade palm rejection and an ergonomic drawing experience
 2. **Hardware Palm Rejection**:
    - Single-finger touches, resting palms, or wrist contacts report `TOOL_TYPE_FINGER` or `ACTION_POINTER_DOWN` with finger tools. All such touches are completely rejected and ignored during drawing.
    - When a stylus is active on screen (`ACTION_DOWN` or `ACTION_MOVE` with `TOOL_TYPE_STYLUS`), any simultaneous finger touches are discarded, preventing unintended canvas navigation or stray artifact generation.
-   - Eraser hardware button / tail eraser: Styluses reporting `TOOL_TYPE_ERASER` or `BUTTON_STYLUS_PRIMARY` automatically map to canvas erasing / clearing behaviors without finger gesture interference.
+
+### 4.1.1 Hardware S-Pen & Stylus Eraser Integration
+
+SmartDraw provides automatic hardware stylus eraser detection, enabling instant erasing without manually toggling tools in the UI:
+
+1. **Hardware Eraser Trigger Mechanisms**:
+   - **Hardware Tail / Tip Eraser**: `MotionEvent.getToolType(pointerIndex) == MotionEvent.TOOL_TYPE_ERASER` (e.g. flipping the stylus or using an eraser tip).
+   - **Stylus Barrel Buttons**: `(event.buttonState and (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_STYLUS_SECONDARY)) != 0` (e.g. pressing and holding the side button on an S-Pen or active stylus during contact).
+2. **Dynamic Mode Resolution**:
+   - `TouchInputHandler` tracks `isHardwareEraserActive`. Upon detecting either hardware condition during `ACTION_DOWN` or `ACTION_MOVE`, `isHardwareEraserActive` immediately transitions to `true`.
+   - `effectiveToolMode` dynamically evaluates:
+     $$\text{effectiveToolMode} = \begin{cases} \text{ToolMode.ERASER} & \text{if } \text{isHardwareEraserActive} \\ \text{toolMode} & \text{otherwise} \end{cases}$$
+3. **Independent Eraser Geometry & Dynamics**:
+   - While `isHardwareEraserActive` is active, stroke segment evaluation routes through `eraserRadius` and `eraserOpacity` rather than the active drawing tool's base parameters.
+   - Eraser pressure modulates radius ($R = R_{\text{eraser}} \cdot P$) while maintaining constant opacity ($\alpha = \alpha_{\text{eraser}}$), matching natural physical eraser dynamics.
+4. **Zero-Friction State Restoration**:
+   - Upon `ACTION_UP` or `ACTION_CANCEL`, `isHardwareEraserActive` resets to `false`.
+   - Subsequent stylus tip touches instantly resume painting with the previously selected tool (e.g. Pen or Paintbrush) at its preserved tool size and opacity, eliminating any manual mode switching friction.
 
 ### 4.2 Two-Finger Viewport Navigation (Pan, Pinch-to-Zoom & Midpoint-Pivoted Rotation)
 
@@ -255,8 +313,8 @@ Finger touches are reserved exclusively for viewport manipulation:
 4. **Viewport Reset & Clear Mechanisms**:
    - **Double-Tap with Two Fingers**: Instantly snaps the viewport back to default centered fit with $S = 1.0$, $\theta = 0^\circ$, and re-centered translation:
      $$S = 1.0, \quad \theta = 0^\circ, \quad T_x = \frac{W_{\text{screen}} - W_{\text{canvas}}}{2}, \quad T_y = \frac{H_{\text{screen}} - H_{\text{canvas}}}{2}$$
-   - **Toolbar Reset Button**: A dedicated reset button in the UI overlay executes the same viewport re-centering, scale normalization to $1.0f$, and rotation reset to $0^\circ$.
-   - **Toolbar Clear Button**: Clears the canvas FBOs (`baseFbo` and `scratchFbo`) to opaque white (`[1f, 1f, 1f, 1f]`).
+   - **More Options Reset View Action**: Located inside the More Options bottom sheet (`btnResetCanvasView`), tapping immediately dismisses the sheet and resets the viewport to centered 1:1 aspect-fit with $\theta = 0^\circ$, decluttering the top toolbar.
+   - **Clear Canvas Action**: Also nested in the More Options bottom sheet, prompts with a confirmation dialog before clearing canvas FBOs to opaque white (`[1f, 1f, 1f, 1f]`).
 
 ### 4.3 Coordinate Space & Transformation Pipeline
 
@@ -349,10 +407,27 @@ Supports fingers, active styluses (S-Pen, Apple Pencil over bridge, USI styluses
 2. **Tool Type Discrimination**:
    - `TOOL_TYPE_STYLUS` / `TOOL_TYPE_ERASER` vs `TOOL_TYPE_FINGER`.
    - Rejection of accidental palm touches when stylus is detected.
-3. **Pressure Response Curves**:
-   - **Linear**: `r = baseRadius * pressure`
-   - **Power (Gamma)**: `r = baseRadius * pow(pressure, gamma)` (gamma = 1.5–2.0 for finer light-touch control)
-   - **Sigmoid**: Smooth S-curve dampening micro-tremors at near-zero and near-maximum pressure.
+3. **Pressure Response Curves & Tool Specialization Dynamics**:
+   - `TouchInputHandler.computeEffectiveRadiusAndOpacity(toolMode, baseRadius, baseOpacity, pressure)` computes the evaluated geometric radius and opacity per stamp:
+     - **Paintbrush (`ToolMode.PAINTBRUSH`)**:
+       $$R_{\text{effective}} = R_{\text{base}} \cdot P, \quad \alpha_{\text{effective}} = \alpha_{\text{base}}$$
+       Stylus pressure dynamically modulates stamp radius while opacity remains constant at the user-configured brush opacity.
+     - **Pen (`ToolMode.PEN`)**:
+       $$R_{\text{effective}} = R_{\text{base}}, \quad \alpha_{\text{effective}} = \alpha_{\text{base}}$$
+       Zero pressure sensitivity on both radius and opacity. Designed for clean, uniform inking, technical line drawing, and precise cross-hatching down to $0.5\text{ px}$.
+     - **Eraser (`ToolMode.ERASER`)**:
+       $$R_{\text{effective}} = R_{\text{base}} \cdot P, \quad \alpha_{\text{effective}} = \alpha_{\text{base}}$$
+       Stylus pressure modulates the erasing radius while opacity remains constant, executing destination-alpha subtraction blending against `baseFbo`.
+     - **Smudge (`ToolMode.SMUDGE`)**:
+       $$R_{\text{effective}} = R_{\text{base}} \cdot P, \quad \alpha_{\text{effective}} = \alpha_{\text{base}} \cdot P$$
+       Pressure modulates both blur radius and smudge convolution dragging strength.
+   - **Response Curves**:
+     - **Linear**: $P = \text{pressure}$
+     - **Power (Gamma)**: $P = \text{pressure}^\gamma$ ($\gamma = 1.5–2.0$ for finer light-touch control)
+     - **Sigmoid**: Smooth S-curve dampening micro-tremors at near-zero and near-maximum pressure.
+4. **Independent Per-Tool Sizing & Opacity Memory**:
+   - `SmartDrawView` maintains independent dictionaries `toolRadii` and `toolOpacities` for each `ToolMode`.
+   - Modifying radius or opacity only alters the active tool's entry. Switching between Paintbrush, Pen, Eraser, and Smudge restores each tool's last-configured radius and opacity, synchronizing UI sliders and the preview ring immediately.
 
 ---
 
@@ -558,9 +633,34 @@ filesDir/
        "useReferenceColors": true,
        "isRatchetEnabled": false,
        "activeTool": "PAINTBRUSH",
-       "brushSize": 24.0,
-       "brushOpacity": 0.85,
-       "manualBrushColor": -16777216
+       "brushSize": 20.0,
+       "brushOpacity": 1.0,
+       "brushSizeBrush": 20.0,
+       "brushSizePen": 1.0,
+       "brushSizeEraser": 20.0,
+       "brushSizeSmudge": 30.0,
+       "brushOpacityBrush": 1.0,
+       "brushOpacityPen": 1.0,
+       "brushOpacityEraser": 1.0,
+       "brushOpacitySmudge": 0.5,
+       "manualBrushColor": -16777216,
+       "layers": [
+         {
+           "id": "c1f2a3b4-5678-9abc-def0-1234567890ab",
+           "name": "Background",
+           "opacity": 1.0,
+           "isVisible": true,
+           "order": 0
+         },
+         {
+           "id": "d2e3f4a5-6789-0bcd-ef01-234567890abc",
+           "name": "Line Art",
+           "opacity": 1.0,
+           "isVisible": true,
+           "order": 1
+         }
+       ],
+       "activeLayerId": "d2e3f4a5-6789-0bcd-ef01-234567890abc"
      }
      ```
    - Field semantics:
@@ -572,10 +672,14 @@ filesDir/
      - `isReferenceVisible` (`Boolean`): Visibility toggle state for the reference layer.
      - `useReferenceColors` (`Boolean`): AutoColor auto-picker active state.
      - `isRatchetEnabled` (`Boolean`): Ratchet mode distance-monotonic painting guard state.
-     - `activeTool` (`String`): Identifier for the active tool (`PAINTBRUSH`, `PEN`, `SMUDGE`). Legacy "PENCIL" serializations gracefully map to `PAINTBRUSH`.
-     - `brushSize` (`Float`): Canvas-space radius / diameter for brush stamping.
-     - `brushOpacity` (`Float`): Stroke opacity factor $\in [0.0, 1.0]$.
-     - `manualBrushColor` (`Int`): ARGB 32-bit integer color value for manual brush strokes when Auto Color is disabled; defaults to `#FF000000` (opaque black). Backwards compatible with existing project JSONs missing this field.
+     - `activeTool` (`String`): Identifier for the active tool (`PAINTBRUSH`, `PEN`, `ERASER`, `SMUDGE`). Legacy "PENCIL" serializations gracefully map to `PAINTBRUSH`.
+     - `brushSize` (`Float`): Canvas-space radius for currently active tool.
+     - `brushOpacity` (`Float`): Stroke opacity factor $\in [0.01, 1.0]$ for currently active tool.
+     - `brushSizeBrush` / `brushSizePen` / `brushSizeEraser` / `brushSizeSmudge` (`Float`): Dedicated independent radii for each specialized tool, restored when switching tools.
+     - `brushOpacityBrush` / `brushOpacityPen` / `brushOpacityEraser` / `brushOpacitySmudge` (`Float`): Dedicated independent opacities for each specialized tool.
+     - `manualBrushColor` (`Int`): ARGB 32-bit integer color value for manual brush strokes when Auto Color is disabled; defaults to `#FF000000` (opaque black).
+     - `layers` (`List<LayerMetadata>`): Ordered list of document layers including UUID, display name, opacity, visibility, and stack order.
+     - `activeLayerId` (`String?`): UUID of the active drawing layer targeting incoming brush/eraser stamps.
 5. **`active_project.json`**:
    - Located in the root `projects/` directory, acting as an atomic pointer to the current document:
      ```json
@@ -613,7 +717,7 @@ SmartDraw employs an event-driven, debounced auto-save architecture designed to 
 
 A high-resolution countdown timer (interval $\Delta t_{\text{idle}} = 5000\text{ ms}$) is scheduled on the main thread / coroutine dispatcher. The countdown resets to $5.0\text{ seconds}$ on any of the following user actions:
 - **Stylus Stroke Completion**: Fired on `MotionEvent.ACTION_UP` or `ACTION_CANCEL` after committing Bezier stamps to `baseFbo`. Intermediary `ACTION_MOVE` events do not trigger disk I/O.
-- **Tool Mode Modification**: Switching between Paintbrush, Pen, and Smudge.
+- **Tool Mode Modification**: Switching between Paintbrush, Pen, Eraser, and Smudge.
 - **Brush Parameter Adjustment**: Adjusting brush size or brush opacity sliders.
 - **Reference Layer State Changes**: Adjusting reference opacity, toggling visibility, or enabling/disabling AutoColor.
 - **Source Image Import / Mutation**: Importing a new reference image or altering canvas dimensions.
@@ -946,7 +1050,7 @@ The top app bar (height $56\text{ dp}$, background `#1E1E1E`, elevation $4\text{
 ```
 
 1. **`btnActiveTool` (Active Tool Icon & Quick Settings Trigger)**:
-   - Displays icon reflecting current tool mode: `ic_brush` for Paintbrush, `ic_pen` for Pen, or `ic_smudge` for Smudge.
+   - Displays icon reflecting current tool mode: `ic_brush` for Paintbrush, `ic_pen` for Pen, `ic_eraser` for Eraser, or `ic_smudge` for Smudge.
    - Styled with `@drawable/bg_tool_button_active` (`#2A2A2A` surface with active outline).
    - Single tap opens the **Tool Settings Bottom Sheet** (`ToolSettingsBottomSheet`).
 2. **`btnColorSettings` (Dedicated Color Settings Button)**:
@@ -1009,22 +1113,30 @@ Activated by tapping the active tool icon (`btnActiveTool`) in the toolbar, this
         - Dynamics: Stylus pressure modulates brush radius ($R_{\text{effective}} = R_{\text{base}} \cdot P$). Opacity is fixed to configured brush opacity ($\alpha_{\text{effective}} = \alpha_{\text{base}}$).
         - Icon: `ic_brush.xml`.
      2. **Pen (`cardToolPen`)**:
-        - Dynamics: Zero pressure sensitivity. Radius is fixed to $R_{\text{base}}$ and opacity is fixed to $\alpha_{\text{base}}$, producing uniform, clean inking lines.
+        - Dynamics: Zero pressure sensitivity. Radius is fixed to $R_{\text{base}}$ and opacity is fixed to $\alpha_{\text{base}}$, producing uniform, clean inking lines with sub-pixel precision down to $0.5\text{ px}$.
         - Icon: `ic_pen.xml`.
-     3. **Smudge (`cardToolSmudge`)**:
-        - Retains existing smudge convolution behavior across the canvas.
+     3. **Eraser (`cardToolEraser`)**:
+        - Dynamics: Stylus pressure modulates eraser radius ($R_{\text{effective}} = R_{\text{base}} \cdot P$). Opacity is fixed to configured eraser opacity ($\alpha_{\text{effective}} = \alpha_{\text{base}}$). Uses destination-alpha subtraction blending to smoothly carve away pixel opacity down to transparency.
+        - Icon: `ic_eraser.xml`.
+     4. **Smudge (`cardToolSmudge`)**:
+        - Retains existing smudge convolution behavior across the canvas, modulating both radius and opacity with pressure.
         - Icon: `ic_smudge.xml`.
    - Active card is highlighted with `@drawable/bg_tool_card_active` (`#1A3A60` background with `#2979FF` accent border).
    - Inactive cards use `@drawable/bg_tool_card_inactive` (`#212121` background with `#333333` border).
-   - Switching tools automatically updates `drawView.toolMode`, updates the top toolbar icon dynamically, and triggers a debounced auto-save timer reset.
+   - Switching tools automatically updates `drawView.toolMode`, updates the top toolbar icon dynamically, seamlessly restores that tool's last-configured radius and opacity, and triggers a debounced auto-save timer reset.
 2. **Live Brush Preview Ring (`BrushPreviewView.kt`)**:
    - Custom Android `View` rendering an antialiased circular brush stamp on a checkered preview box.
    - Dynamically scales radius and adjusts alpha in real time as the user drags sliders, providing instantaneous tactile calibration.
-   - Displays current brush color (or white when Auto Color is active).
+   - Displays current brush color (or white when Auto Color is active, or transparent checkered cutout when Eraser is active).
 3. **Brush Size Slider**:
-   - Granular slider spanning $2\text{ px}$ to $100\text{ px}$ with integer readout (e.g., `24 px`).
+   - Granular slider spanning $0.5\text{ px}$ to $100\text{ px}$ in fine $0.5\text{ px}$ increments with formatted numeric readout (e.g., `0.5 px`, `1 px`, `24 px`).
+   - Supports sub-pixel precision for the Pen tool down to $0.5\text{ px}$ for ultra-fine inking and line hatching.
 4. **Brush Opacity Slider**:
    - Continuous slider spanning $1\%$ to $100\%$ with percentage readout (e.g., `85%`).
+5. **Independent Per-Tool Radius & Opacity Memory**:
+   - Each tool mode (Paintbrush, Pen, Eraser, Smudge) maintains independent radius and opacity values in `SmartDrawView.toolRadii` and `toolOpacities`.
+   - Switching between tools immediately updates the slider positions, text readouts, and live preview ring to match that specific tool's remembered values.
+   - Values are persisted in `PaintingProject` across app restarts and project reloads (`brushSizeBrush`, `brushSizePen`, `brushSizeEraser`, `brushSizeSmudge`, and corresponding opacity fields).
 
 ---
 
@@ -1137,7 +1249,7 @@ Positioned immediately beneath the top toolbar (background `#181818`, height $32
 | UI Component | User Action | Event / Execution Target | State Transition |
 | :--- | :--- | :--- | :--- |
 | **`btnActiveTool`** | Click | `showToolSettingsModal()` | Opens `ToolSettingsBottomSheet` |
-| **Tool Card (Brush/Pen/Smudge)** | Click | `onToolSelected(toolMode)` | Updates active tool, top toolbar icon, marks dirty |
+| **Tool Card (Brush/Pen/Eraser/Smudge)** | Click | `onToolSelected(toolMode)` | Updates active tool, top toolbar icon, marks dirty |
 | **Brush Size Slider** | Drag | `onBrushSizeChanged(radius)` | Updates `baseRadius`, brush preview ring, marks dirty |
 | **Brush Opacity Slider** | Drag | `onBrushOpacityChanged(opacity)` | Updates `baseOpacity`, brush preview ring, marks dirty |
 | **`btnColorSettings`** | Click | `showColorSettingsModal()` | Opens `ColorSettingsBottomSheet` |
@@ -1167,7 +1279,7 @@ Positioned immediately beneath the top toolbar (background `#181818`, height $32
 | **Merge Down** | Click | `drawView.mergeDown(id)` | Alpha-blends active layer into lower layer, deletes active |
 | **Move Up (▲)** | Click | `drawView.moveLayerUp(id)` | Moves active layer up in rendering stack |
 | **Move Down (▼)** | Click | `drawView.moveLayerDown(id)` | Moves active layer down in rendering stack |
-| **Delete Layer (Trash)** | Click | `drawView.deleteLayer(id)` | Deletes layer and releases FBO (if $>1$ layer remains) |
+| **Delete Layer (Trash)** | Click | `drawView.deleteLayer(id)` | Prompts with confirmation dialog; upon confirmation, deletes layer and releases FBO (if $>1$ layer remains) |
 | **Layer Item Click** | Click | `drawView.selectLayer(id)` | Sets active drawing layer target |
 | **Layer Eye Icon** | Click | `drawView.setLayerVisibility(id, visible)` | Toggles layer rendering in compositing pass |
 | **Layer Opacity Slider**| Drag | `drawView.setLayerOpacity(id, opacity)` | Adjusts layer alpha $[0\%, 100\%]$ in compositing pass |
@@ -1252,11 +1364,12 @@ val boxH = minOf(side, height - minY)
 - **Canvas Resizing & Layer Reset (`clearHistory()`)**: When loading a new project, clearing the canvas, or resizing dimensions, both stacks are purged.
 - **Sub-Rect Texture Blit (`GlesFbo.loadSubRect`)**: Undoing or redoing uploads only the $(boxW \times boxH)$ pixels into the target layer texture using `glTexSubImage2D`, ensuring near-instantaneous restoration without allocating or reallocating FBO textures.
 
-### 14.4 Toolbar Action Integration
+### 14.4 Floating Canvas Action Integration (§13.2)
 
-- **Toolbar Buttons**:
-  - `btnUndo` (icon: `ic_undo.xml`, description: "Undo")
-  - `btnRedo` (icon: `ic_redo.xml`, description: "Redo")
+To maintain maximum screen real estate on tablet and mobile viewports, Undo and Redo are presented as circular floating action buttons over the lower canvas corners:
+- **Floating Buttons**:
+  - `btnUndo`: Bottom-left canvas overlay ($16\text{ dp}$ margins), circular $48\text{ dp}$ button with `ic_undo.xml`.
+  - `btnRedo`: Bottom-right canvas overlay ($16\text{ dp}$ margins), circular $48\text{ dp}$ button with `ic_redo.xml`.
 - **Dynamic Visual State**:
   - When active (`canUndo` or `canRedo` is true): `alpha = 1.0f`, `isEnabled = true`, `isClickable = true`.
   - When inactive (`canUndo` or `canRedo` is false): `alpha = 0.35f`, `isEnabled = false`, `isClickable = false`.
@@ -1264,6 +1377,21 @@ val boxH = minOf(side, height - minY)
   - `btnUndo.setOnClickListener { drawView.undo() }`
   - `btnRedo.setOnClickListener { drawView.redo() }`
 - **Callback Hook**: `SmartDrawView.onHistoryStateChanged: ((canUndo: Boolean, canRedo: Boolean) -> Unit)?` notifies the UI immediately when stack availability changes.
+
+### 14.5 Hard Eraser and Smudge Sub-Rect Diff Lifecycle
+
+Drawing tools interact with the undo pipeline across two execution architectures:
+
+1. **Standard In-Flight Staged Drawing (Paintbrush, Pen)**:
+   - Stroke segments render into `activeStrokeFbo`.
+   - On `onStrokeEnd`, `endActiveStroke()` stamps accumulated stamps into `baseFbo`, computes the bounding box, extracts `afterPixels`, and commits the `SubRectDiff`.
+2. **Direct Progressive Target Modification (Hard Eraser, Smudge)**:
+   - Because smudge drags pixels and the hard eraser subtracts alpha directly from `baseFbo`, rendering cannot be deferred to `activeStrokeFbo`.
+   - On `onStrokeStart`, `beginStrokeCapture()` snapshots the target layer's pre-stroke pixels (`beforePixels`).
+   - During `onStrokeSegment`, `eraseBezier` or `smudgeLine` modifies `baseFbo` in real time. Point coordinates and dynamic radii are tracked in `activeStrokePoints` and `activeStrokeRadii`.
+   - On `onStrokeEnd`, `commitUndoDiff()` calculates the minimal bounding square enclosing all stroke points, queries `afterPixels` from `baseFbo`, adds the `SubRectDiff` to `undoStack`, clears `redoStack`, and purges active stroke buffers.
+   - **Undo Fidelity**: Calling `drawView.undo()` uploads `beforePixels` via `glTexSubImage2D`, restoring previous opaque pixels and color data.
+   - **Redo Fidelity**: Calling `drawView.redo()` uploads `afterPixels` via `glTexSubImage2D`, re-clearing destination alpha to transparency.
 
 ---
 
