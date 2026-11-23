@@ -57,6 +57,7 @@ class MainActivity : AppCompatActivity(),
     private lateinit var btnColorSettings: ImageButton
     private lateinit var btnEyedropper: ImageButton
     private lateinit var btnResetView: ImageButton
+    private lateinit var btnLayers: ImageButton
     private lateinit var btnGallery: ImageButton
     private lateinit var btnMoreOptions: ImageButton
     private lateinit var statusText: TextView
@@ -84,6 +85,7 @@ class MainActivity : AppCompatActivity(),
         btnColorSettings = findViewById(R.id.btnColorSettings)
         btnEyedropper = findViewById(R.id.btnEyedropper)
         btnResetView = findViewById(R.id.btnResetView)
+        btnLayers = findViewById(R.id.btnLayers)
         btnGallery = findViewById(R.id.btnGallery)
         btnMoreOptions = findViewById(R.id.btnMoreOptions)
         statusText = findViewById(R.id.statusText)
@@ -106,6 +108,8 @@ class MainActivity : AppCompatActivity(),
                     p.brushSize = drawView.getBrushSize()
                     p.brushOpacity = drawView.brushOpacity
                     p.manualBrushColor = drawView.brushColor
+                    p.layers = drawView.getLayers()
+                    p.activeLayerId = drawView.getActiveLayerId()
                     return p
                 }
 
@@ -120,6 +124,10 @@ class MainActivity : AppCompatActivity(),
         )
 
         drawView.onStrokeCompleted = {
+            autoSaveManager.markDirty()
+        }
+
+        drawView.onLayersChanged = {
             autoSaveManager.markDirty()
         }
 
@@ -179,6 +187,10 @@ class MainActivity : AppCompatActivity(),
             statusText.text = "View reset to 1:1 centered"
         }
 
+        btnLayers.setOnClickListener {
+            LayerManagerBottomSheet.newInstance().show(supportFragmentManager, "LayerManagerBottomSheet")
+        }
+
         btnGallery.setOnClickListener {
             openGallery()
         }
@@ -226,6 +238,9 @@ class MainActivity : AppCompatActivity(),
 
                     // Canvas Dimensions & Base Layer
                     drawView.setCanvasDimensions(project.canvasWidth, project.canvasHeight)
+                    if (project.layers.isNotEmpty()) {
+                        drawView.setLayers(project.layers, project.activeLayerId)
+                    }
                     if (loaded.baseBitmap != null) {
                         drawView.loadBaseBitmap(loaded.baseBitmap)
                     } else {

@@ -8,8 +8,11 @@ import android.os.Looper
 import android.util.AttributeSet
 import android.view.GestureDetector
 import android.view.MotionEvent
+import com.smartdraw.gles.CanvasLayer
+import com.smartdraw.gles.GlesFbo
 import com.smartdraw.gles.SmartDrawRenderer
 import com.smartdraw.input.TouchInputHandler
+import com.smartdraw.project.LayerMetadata
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.hypot
@@ -63,6 +66,10 @@ class SmartDrawView @JvmOverloads constructor(
                 touchHandler.baseOpacity = value
             }
         }
+
+    private val layersList = mutableListOf<LayerMetadata>()
+    private var internalActiveLayerId: String? = null
+    var onLayersChanged: (() -> Unit)? = null
 
     // Intrinsic canvas dimensions for offscreen drawing (dynamic, defaults to 1024x1024)
     var canvasWidth: Int = 1024
@@ -236,6 +243,10 @@ class SmartDrawView @JvmOverloads constructor(
             }
         )
 
+        val initialLayer = LayerMetadata(id = java.util.UUID.randomUUID().toString(), name = "Layer 1")
+        layersList.add(initialLayer)
+        internalActiveLayerId = initialLayer.id
+
         setEGLContextClientVersion(3)
         setRenderer(this)
         renderMode = RENDERMODE_WHEN_DIRTY
@@ -245,6 +256,22 @@ class SmartDrawView @JvmOverloads constructor(
         val renderer = SmartDrawRenderer(canvasWidth, canvasHeight)
         renderer.isRatchetEnabled = isRatchetEnabled
         rendererInstance = renderer
+
+        if (layersList.isNotEmpty()) {
+            renderer.layers.clear()
+            for (meta in layersList) {
+                val cl = CanvasLayer(
+                    id = meta.id,
+                    name = meta.name,
+                    opacity = meta.opacity,
+                    isVisible = meta.isVisible,
+                    fbo = GlesFbo(canvasWidth, canvasHeight)
+                )
+                renderer.clearLayer(cl, 0.0f, 0.0f, 0.0f, 0.0f)
+                renderer.layers.add(cl)
+            }
+            internalActiveLayerId?.let { renderer.selectLayer(it) }
+        }
 
         // Drain pending GL lifecycle queue: upload staged bitmaps and layer parameters
         val baseBmp = pendingBaseBitmap
@@ -443,6 +470,202 @@ class SmartDrawView @JvmOverloads constructor(
         } else {
             pendingReferenceVisible = visible
         }
+    }
+
+    /**
+     * Layer Management APIs
+     */
+
+    fun getLayers(): List<LayerMetadata> = layersList.toList()
+
+    fun getActiveLayerId(): String? = internalActiveLayerId
+
+    fun setLayers(layers: List<LayerMetadata>, activeId: String? = null) {
+        if (layers.isEmpty()) return
+        layersList.clear()
+        layersList.addAll(layers)
+        internalActiveLayerId = if (activeId != null && layers.any { it.id == activeId }) {
+            activeId
+        } else {
+            layers.first().id
+        }
+
+        if (rendererInstance != null) {
+            queueEvent {
+                val r = rendererInstance ?: return@queueEvent
+                for (l in r.layers) {
+                    l.release()
+                }
+                r.layers.clear()
+                for (meta in layersList) {
+                    val cl = CanvasLayer(
+                        id = meta.id,
+                        name = meta.name,
+                        opacity = meta.opacity,
+                        isVisible = meta.isVisible,
+                        fbo = GlesFbo(canvasWidth, canvasHeight)
+                    )
+                    r.clearLayer(cl, 0.0f, 0.0f, 0.0f, 0.0f)
+                    r.layers.add(cl)
+                }
+                internalActiveLayerId?.let { r.selectLayer(it) }
+                requestRender()
+            }
+        }
+        onLayersChanged?.invoke()
+    }
+
+    fun addLayer(name: String? = null): LayerMetadata {
+        val layerNum = layersList.size + 1
+        val layerName = name ?: "Layer $layerNum"
+        val newLayer = LayerMetadata(
+            id = java.util.UUID.randomUUID().toString(),
+            name = layerName,
+            opacity = 1.0f,
+            isVisible = true
+        )
+        val activeIdx = layersList.indexOfFirst { it.id == internalActiveLayerId }
+        val insertIdx = if (activeIdx >= 0) activeIdx + 1 else layersList.size
+        layersList.add(insertIdx, newLayer)
+        internalActiveLayerId = newLayer.id
+
+        if (rendererInstance != null) {
+            queueEvent {
+                rendererInstance?.addLayer(newLayer.name, newLayer.id)
+                requestRender()
+            }
+        }
+        onLayersChanged?.invoke()
+        return newLayer
+    }
+
+    fun selectLayer(id: String): Boolean {
+        val exists = layersList.any { it.id == id }
+        if (!exists) return false
+        internalActiveLayerId = id
+        if (rendererInstance != null) {
+            queueEvent {
+                rendererInstance?.selectLayer(id)
+                requestRender()
+            }
+        }
+        onLayersChanged?.invoke()
+        return true
+    }
+
+    fun deleteLayer(id: String): Boolean {
+        if (layersList.size <= 1) return false
+        val idx = layersList.indexOfFirst { it.id == id }
+        if (idx < 0) return false
+        layersList.removeAt(idx)
+        if (internalActiveLayerId == id) {
+            internalActiveLayerId = layersList[idx.coerceAtMost(layersList.size - 1)].id
+        }
+        if (rendererInstance != null) {
+            queueEvent {
+                rendererInstance?.deleteLayer(id)
+                requestRender()
+            }
+        }
+        onLayersChanged?.invoke()
+        return true
+    }
+
+    fun moveLayer(fromIndex: Int, toIndex: Int): Boolean {
+        if (fromIndex !in layersList.indices || toIndex !in layersList.indices || fromIndex == toIndex) {
+            return false
+        }
+        val activeId = internalActiveLayerId
+        val item = layersList.removeAt(fromIndex)
+        layersList.add(toIndex, item)
+        internalActiveLayerId = activeId
+
+        if (rendererInstance != null) {
+            queueEvent {
+                rendererInstance?.moveLayer(fromIndex, toIndex)
+                requestRender()
+            }
+        }
+        onLayersChanged?.invoke()
+        return true
+    }
+
+    fun moveLayerUp(id: String): Boolean {
+        val idx = layersList.indexOfFirst { it.id == id }
+        if (idx < 0 || idx >= layersList.size - 1) return false
+        return moveLayer(idx, idx + 1)
+    }
+
+    fun moveLayerDown(id: String): Boolean {
+        val idx = layersList.indexOfFirst { it.id == id }
+        if (idx <= 0) return false
+        return moveLayer(idx, idx - 1)
+    }
+
+    fun duplicateLayer(id: String): LayerMetadata? {
+        val idx = layersList.indexOfFirst { it.id == id }
+        if (idx < 0) return null
+        val src = layersList[idx]
+        val dup = LayerMetadata(
+            id = java.util.UUID.randomUUID().toString(),
+            name = "${src.name} Copy",
+            opacity = src.opacity,
+            isVisible = src.isVisible
+        )
+        layersList.add(idx + 1, dup)
+        internalActiveLayerId = dup.id
+
+        if (rendererInstance != null) {
+            queueEvent {
+                rendererInstance?.duplicateLayer(id, dup.id, dup.name)
+                requestRender()
+            }
+        }
+        onLayersChanged?.invoke()
+        return dup
+    }
+
+    fun mergeDown(id: String): LayerMetadata? {
+        val idx = layersList.indexOfFirst { it.id == id }
+        if (idx <= 0) return null
+        layersList.removeAt(idx)
+        val lower = layersList[idx - 1]
+        internalActiveLayerId = lower.id
+
+        if (rendererInstance != null) {
+            queueEvent {
+                rendererInstance?.mergeDown(id)
+                requestRender()
+            }
+        }
+        onLayersChanged?.invoke()
+        return lower
+    }
+
+    fun setLayerOpacity(id: String, opacity: Float): Boolean {
+        val layer = layersList.find { it.id == id } ?: return false
+        layer.opacity = opacity.coerceIn(0f, 1f)
+        if (rendererInstance != null) {
+            queueEvent {
+                rendererInstance?.setLayerOpacity(id, opacity)
+                requestRender()
+            }
+        }
+        onLayersChanged?.invoke()
+        return true
+    }
+
+    fun setLayerVisibility(id: String, isVisible: Boolean): Boolean {
+        val layer = layersList.find { it.id == id } ?: return false
+        layer.isVisible = isVisible
+        if (rendererInstance != null) {
+            queueEvent {
+                rendererInstance?.setLayerVisibility(id, isVisible)
+                requestRender()
+            }
+        }
+        onLayersChanged?.invoke()
+        return true
     }
 
     /**

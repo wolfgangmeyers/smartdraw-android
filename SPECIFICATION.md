@@ -41,15 +41,20 @@ SmartDraw Android is a high-performance native Android painting application desi
 
 SmartDraw uses a multi-layer composition pipeline operating on dynamic canvas dimensions $(W_{\text{canvas}} \times H_{\text{canvas}})$:
 
-1. **Background Layer**: Generates or uploads a checkered transparency pattern or solid background color.
-2. **Reference Image Layer**: GPU texture (`GL_TEXTURE_2D`) containing the target painting image, with uniform opacity (`u_referenceOpacity`) and toggleable visibility (`u_renderReference`).
-3. **Drawing Layer (Base Layer)**: Main user painting canvas stored in an FBO texture target (`GL_RGBA8`).
-4. **Compositing Pass**: Fullscreen or transformed quad shader combining background, drawing layer, reference layer, and UI overlay with alpha blending. During viewport navigation (pan and zoom), the canvas quad is rendered transformed by the Viewport Model-View-Projection (MVP) matrix directly into the screen framebuffer (`GL_FRAMEBUFFER 0`).
+1. **Background Layer**: Generates or uploads a solid background color (`solidBackgroundColor`, default opaque white) rendered via `compositingShader.renderSolidQuad`.
+2. **Multi-Layer Drawing Stack (`CanvasLayer.kt`)**: User artwork is structured as an ordered stack of discrete canvas layers ($L_0, L_1, \dots, L_{n-1}$), each backed by an independent offscreen FBO texture target (`GL_RGBA8`).
+   - Each `CanvasLayer` maintains an immutable `id` (UUID), user-facing `name`, `opacity` $\in [0.0, 1.0]$, and boolean `isVisible`.
+   - The active drawing layer (`getActiveLayer()`) receives all incoming brush stamps, smudge operations, and finalized Bezier strokes.
+   - Layers are rendered bottom-to-top ($i = 0$ to $n-1$) using `compositingShader.renderLayerQuad`, with premultiplied alpha blending:
+     $$\text{dst} = \text{src} \cdot \alpha_{\text{src}} + \text{dst} \cdot (1 - \alpha_{\text{src}})$$
+   - Active in-flight strokes (`activeStrokeFbo`) are dynamically composited on top of the currently active layer during brush drag events before being permanently stamped into that layer's FBO upon `ACTION_UP`.
+3. **Reference Image Layer**: GPU texture (`GL_TEXTURE_2D`) containing the target painting image, with uniform opacity (`u_referenceOpacity`) and toggleable visibility (`u_renderReference`), rendered as the top-most overlay using `compositingShader.renderLayerQuad`.
+4. **Compositing Pass**: Multi-pass quad shader combining background solid quad, all visible canvas layers in bottom-to-top order, in-progress active stroke quad, and reference overlay layer. During viewport navigation (pan and zoom), the composite is rendered transformed by the Viewport Model-View-Projection (MVP) matrix directly into the screen framebuffer (`GL_FRAMEBUFFER 0`).
 5. **Dynamic Aspect Ratio & Resolution Scaling**:
    - The canvas dimensions $(W_{\text{canvas}}, H_{\text{canvas}})$ dynamically adapt to the aspect ratio of imported source images:
      $$W_{\text{canvas}} = W_{\text{src}} \times \text{scale}, \quad H_{\text{canvas}} = H_{\text{src}} \times \text{scale}$$
    - When an image is imported, the user selects a resolution scale from $1\times$ to $8\times$.
-   - FBOs (`baseFbo`, `scratchFbo`, `compositeFbo`, `activeStrokeFbo`) are cleanly reallocated to $(W_{\text{canvas}}, H_{\text{canvas}})$ via `SmartDrawRenderer.resizeCanvas()`.
+   - All layer FBOs, `scratchFbo`, `compositeFbo`, and `activeStrokeFbo` are cleanly reallocated to $(W_{\text{canvas}}, H_{\text{canvas}})$ via `SmartDrawRenderer.resizeCanvas()`.
    - The reference layer texture maps $1:1$ directly onto the canvas space without letterboxing distortion because both share the exact same aspect ratio.
    - The compositing quad scales by $(W_{\text{canvas}}, H_{\text{canvas}})$ in its model matrix, ensuring rectangular canvases render with their true geometric proportions letterboxed against the screen viewport.
 
@@ -935,9 +940,9 @@ SmartDraw Android implements an uncluttered, modern dark-theme user interface op
 The top app bar (height $56\text{ dp}$, background `#1E1E1E`, elevation $4\text{ dp}$) houses six primary controls with visual state cues:
 
 ```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│ [ Tool ] [ Color ] [ 💧 Eyedropper ] [ Reset View ]    <Spacer>   [ 🖼 Gallery ] [ … More ] │
-└────────────────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ [ Tool ] [ Color ] [ 💧 Eyedropper ] [ Reset View ] [ ⧉ Layers ]   <Spacer>   [ 🖼 Gallery ] [ … More ] │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 1. **`btnActiveTool` (Active Tool Icon & Quick Settings Trigger)**:
@@ -957,12 +962,15 @@ The top app bar (height $56\text{ dp}$, background `#1E1E1E`, elevation $4\text{
 4. **`btnResetView` (Viewport Reset to 1:1 Aspect-Fit Centered)**:
    - Displays the target frame icon (`ic_reset_view`).
    - Instantly snaps canvas scale to aspect-fit ($S = 1.0$), rotation to $\theta = 0^\circ$, and centers the canvas inside the viewport.
-5. **Flexible Spacer (`View weight=1`)**:
+5. **`btnLayers` (Layer Management Button)**:
+   - Displays the layers icon (`ic_layers`).
+   - Single tap opens the **Layer Management Bottom Sheet** (`LayerManagerBottomSheet`).
+6. **Flexible Spacer (`View weight=1`)**:
    - Generously separates core drawing tools on the left from document and session management on the right.
-6. **`btnGallery` (Multi-Painting Gallery)**:
+7. **`btnGallery` (Multi-Painting Gallery)**:
    - Displays the image grid icon (`ic_gallery`).
    - Flushes active auto-save and opens the **Paintings Gallery** modal (`GalleryDialogFragment`).
-7. **`btnMoreOptions` (Overflow Ellipsis Settings Sheet)**:
+8. **`btnMoreOptions` (Overflow Ellipsis Settings Sheet)**:
    - Displays the ellipsis icon (`ic_more`).
    - Opens the **More Options Bottom Sheet** (`MoreOptionsBottomSheet`).
 
@@ -1117,4 +1125,39 @@ Positioned immediately beneath the top toolbar (background `#181818`, height $32
 | **Gallery Tile** | Click | `onProjectSelected(project)` | Flushes current save, restores target project |
 | **Gallery Tile Delete** | Click | Confirmation Dialog $\to$ Purge | Deletes `<uuid>/`, falls back to next active project |
 | **Gallery "+ New Painting"** | Click | `promptNewPainting()` | Flushes current save, creates new project, resets view |
+| **`btnLayers`** | Click | `LayerManagerBottomSheet.newInstance().show()` | Opens `LayerManagerBottomSheet` |
+| **Add Layer (+)** | Click | `drawView.addLayer()` | Appends new layer above active layer, sets active |
+| **Duplicate Layer** | Click | `drawView.duplicateLayer(id)` | Clones active layer pixels via `blitFbo` |
+| **Merge Down** | Click | `drawView.mergeDown(id)` | Alpha-blends active layer into lower layer, deletes active |
+| **Move Up (▲)** | Click | `drawView.moveLayerUp(id)` | Moves active layer up in rendering stack |
+| **Move Down (▼)** | Click | `drawView.moveLayerDown(id)` | Moves active layer down in rendering stack |
+| **Delete Layer (Trash)** | Click | `drawView.deleteLayer(id)` | Deletes layer and releases FBO (if $>1$ layer remains) |
+| **Layer Item Click** | Click | `drawView.selectLayer(id)` | Sets active drawing layer target |
+| **Layer Eye Icon** | Click | `drawView.setLayerVisibility(id, visible)` | Toggles layer rendering in compositing pass |
+| **Layer Opacity Slider**| Drag | `drawView.setLayerOpacity(id, opacity)` | Adjusts layer alpha $[0\%, 100\%]$ in compositing pass |
+
+---
+
+### 13.9 Layer Management Bottom Sheet (`LayerManagerBottomSheet.kt` & `modal_layer_manager.xml`)
+
+Activated by tapping the layers icon (`btnLayers`) in the top toolbar, this bottom sheet provides full multi-layer creation, organization, and compositing control:
+
+1. **Header & Layer Count**:
+   - Title: "Layers".
+   - Displays real-time count of layers (e.g., "3 layers").
+2. **Action Toolbar**:
+   - Modern $44\text{ dp}$ buttons with $8\text{ dp}$ rounded corners (`bg_tool_button_inactive`).
+   - **Add Layer (`btnAddLayer`, `ic_add`)**: Creates a new transparent `CanvasLayer` immediately above the currently selected layer and sets it active.
+   - **Duplicate (`btnDuplicateLayer`, `ic_copy`)**: Clones the active layer's texture and properties into a new layer using fast GPU `glBlitFramebuffer`.
+   - **Merge Down (`btnMergeDown`, `ic_merge`)**: Blends the active layer onto the layer directly below it via `compositingShader.renderLayerQuad` and releases the merged layer. Disabled when the bottom-most layer is active.
+   - **Move Up (`btnMoveUp`, `ic_arrow_up`)**: Promotes the active layer higher in the rendering stack (increasing z-index). Disabled when the top-most layer is active.
+   - **Move Down (`btnMoveDown`, `ic_arrow_down`)**: Demotes the active layer lower in the rendering stack. Disabled when the bottom-most layer is active.
+   - **Delete (`btnDeleteLayer`, `ic_delete`)**: Removes the active layer and reclaims GPU FBO memory. Disabled when only one layer remains on the canvas.
+3. **Layer List (`RecyclerView` with `item_layer.xml`)**:
+   - Presented in natural visual order (top layer at the top of the list, bottom layer at the bottom).
+   - **Active Selection**: Card highlights with `@drawable/bg_tool_card_active` and an active indicator badge; inactive cards render with `@drawable/bg_tool_card_inactive`. Tapping any card selects it as the active drawing layer.
+   - **Layer Name**: Displays layer title (e.g., "Layer 1", "Layer 2", "Layer 1 Copy").
+   - **Visibility Toggle**: Eye icon (`ic_visibility` when visible, `ic_visibility_off` with dimmed `#757575` tint when hidden). Toggling updates the compositing pass instantly without destroying drawing contents.
+   - **Opacity Slider**: Integrated $0-100\%$ `SeekBar` with live percentage readout, modulating the layer quad's alpha in real time.
+
 

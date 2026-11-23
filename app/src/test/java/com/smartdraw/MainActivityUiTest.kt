@@ -35,6 +35,7 @@ class MainActivityUiTest {
         val btnColorSettings: ImageButton = activity.findViewById(R.id.btnColorSettings)
         val btnEyedropper: ImageButton = activity.findViewById(R.id.btnEyedropper)
         val btnResetView: ImageButton = activity.findViewById(R.id.btnResetView)
+        val btnLayers: ImageButton = activity.findViewById(R.id.btnLayers)
         val btnGallery: ImageButton = activity.findViewById(R.id.btnGallery)
         val btnMoreOptions: ImageButton = activity.findViewById(R.id.btnMoreOptions)
         val drawView: SmartDrawView = activity.findViewById(R.id.smartDrawView)
@@ -43,6 +44,7 @@ class MainActivityUiTest {
         assertNotNull(btnColorSettings)
         assertNotNull(btnEyedropper)
         assertNotNull(btnResetView)
+        assertNotNull(btnLayers)
         assertNotNull(btnGallery)
         assertNotNull(btnMoreOptions)
         assertNotNull(drawView)
@@ -154,5 +156,28 @@ class MainActivityUiTest {
         val switchRatchet: androidx.appcompat.widget.SwitchCompat? = fragment?.view?.findViewById(R.id.switchRatchetMode)
         assertNotNull(switchRatchet)
         assertEquals(activity.drawView.isRatchetEnabled, switchRatchet?.isChecked)
+    }
+
+    @Test
+    fun testClickLayersButtonOpensLayerManagerBottomSheet() {
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        val activity = controller.get()
+        org.robolectric.shadows.ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+        val btnLayers: ImageButton = activity.findViewById(R.id.btnLayers)
+        assertNotNull(btnLayers)
+        btnLayers.performClick()
+        org.robolectric.shadows.ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+        val fragment = activity.supportFragmentManager.findFragmentByTag("LayerManagerBottomSheet") as? LayerManagerBottomSheet
+        assertNotNull(fragment)
+        assertNotNull(fragment?.view)
+
+        val btnAddLayer: ImageButton? = fragment?.view?.findViewById(R.id.btnAddLayer)
+        assertNotNull(btnAddLayer)
+        btnAddLayer?.performClick()
+        org.robolectric.shadows.ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+        assertEquals(2, activity.drawView.getLayers().size)
     }
 }

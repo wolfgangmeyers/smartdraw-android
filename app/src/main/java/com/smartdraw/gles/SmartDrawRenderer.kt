@@ -7,6 +7,7 @@ import android.opengl.Matrix
 import com.smartdraw.core.BezierCurve
 import com.smartdraw.core.Point2D
 import com.smartdraw.core.RatchetEvaluator
+import java.util.UUID
 import kotlin.math.hypot
 import kotlin.math.max
 
@@ -14,8 +15,12 @@ class SmartDrawRenderer(
     var width: Int,
     var height: Int
 ) {
-    var baseFbo = GlesFbo(width, height)
-        private set
+    val layers = ArrayList<CanvasLayer>()
+    var activeLayerIndex: Int = 0
+
+    val baseFbo: GlesFbo
+        get() = getActiveLayer().fbo
+
     var scratchFbo = GlesFbo(width, height)
         private set
     var compositeFbo = GlesFbo(width, height)
@@ -45,14 +50,49 @@ class SmartDrawRenderer(
     private val activeStrokeSegments = ArrayList<ActiveStrokeSegment>()
 
     init {
-        clear(1.0f, 1.0f, 1.0f, 1.0f) // Opaque white base canvas
+        val initialLayer = CanvasLayer(
+            name = "Layer 1",
+            fbo = GlesFbo(width, height)
+        )
+        clearLayer(initialLayer, 0.0f, 0.0f, 0.0f, 0.0f)
+        layers.add(initialLayer)
+        activeLayerIndex = 0
+
+        clear(0.0f, 0.0f, 0.0f, 0.0f)
     }
 
-    fun clear(r: Float = 1.0f, g: Float = 1.0f, b: Float = 1.0f, a: Float = 1.0f) {
-        baseFbo.bind()
+    fun getActiveLayer(): CanvasLayer {
+        if (layers.isEmpty()) {
+            val l = CanvasLayer(name = "Layer 1", fbo = GlesFbo(width, height))
+            clearLayer(l, 0.0f, 0.0f, 0.0f, 0.0f)
+            layers.add(l)
+            activeLayerIndex = 0
+            return l
+        }
+        if (activeLayerIndex !in layers.indices) {
+            activeLayerIndex = activeLayerIndex.coerceIn(0, layers.size - 1)
+        }
+        return layers[activeLayerIndex]
+    }
+
+    var activeLayerId: String
+        get() = getActiveLayer().id
+        set(value) {
+            val idx = layers.indexOfFirst { it.id == value }
+            if (idx >= 0) activeLayerIndex = idx
+        }
+
+    fun clearLayer(layer: CanvasLayer, r: Float = 0.0f, g: Float = 0.0f, b: Float = 0.0f, a: Float = 0.0f) {
+        layer.fbo.bind()
         GLES30.glClearColor(r, g, b, a)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
-        baseFbo.unbind()
+        layer.fbo.unbind()
+    }
+
+    fun clear(r: Float = 0.0f, g: Float = 0.0f, b: Float = 0.0f, a: Float = 0.0f) {
+        for (layer in layers) {
+            clearLayer(layer, r, g, b, a)
+        }
 
         scratchFbo.bind()
         GLES30.glClearColor(r, g, b, a)
@@ -63,7 +103,166 @@ class SmartDrawRenderer(
     }
 
     fun clearCanvas(r: Float = 1.0f, g: Float = 1.0f, b: Float = 1.0f, a: Float = 1.0f) {
-        clear(r, g, b, a)
+        solidBackgroundColor = floatArrayOf(r, g, b, a)
+        clear(0.0f, 0.0f, 0.0f, 0.0f)
+    }
+
+    /**
+     * Layer Management APIs
+     */
+
+    fun addLayer(name: String? = null, id: String = UUID.randomUUID().toString()): CanvasLayer {
+        val layerNumber = layers.size + 1
+        val layerName = name ?: "Layer $layerNumber"
+        val newLayer = CanvasLayer(
+            id = id,
+            name = layerName,
+            opacity = 1.0f,
+            isVisible = true,
+            fbo = GlesFbo(width, height)
+        )
+        clearLayer(newLayer, 0.0f, 0.0f, 0.0f, 0.0f)
+        val insertIndex = (activeLayerIndex + 1).coerceIn(0, layers.size)
+        layers.add(insertIndex, newLayer)
+        activeLayerIndex = insertIndex
+        return newLayer
+    }
+
+    fun selectLayer(id: String): Boolean {
+        val idx = layers.indexOfFirst { it.id == id }
+        if (idx >= 0) {
+            activeLayerIndex = idx
+            return true
+        }
+        return false
+    }
+
+    fun selectLayer(index: Int): Boolean {
+        if (index in layers.indices) {
+            activeLayerIndex = index
+            return true
+        }
+        return false
+    }
+
+    fun deleteLayer(id: String): Boolean {
+        if (layers.size <= 1) return false
+        val idx = layers.indexOfFirst { it.id == id }
+        if (idx < 0) return false
+        return deleteLayer(idx)
+    }
+
+    fun deleteLayer(index: Int): Boolean {
+        if (layers.size <= 1 || index !in layers.indices) return false
+        val layer = layers.removeAt(index)
+        layer.release()
+        activeLayerIndex = activeLayerIndex.coerceIn(0, layers.size - 1)
+        return true
+    }
+
+    fun moveLayer(fromIndex: Int, toIndex: Int): Boolean {
+        if (fromIndex !in layers.indices || toIndex !in layers.indices || fromIndex == toIndex) {
+            return false
+        }
+        val active = getActiveLayer()
+        val layer = layers.removeAt(fromIndex)
+        layers.add(toIndex, layer)
+        activeLayerIndex = layers.indexOf(active).coerceAtLeast(0)
+        return true
+    }
+
+    fun moveLayerUp(id: String): Boolean {
+        val idx = layers.indexOfFirst { it.id == id }
+        if (idx < 0 || idx >= layers.size - 1) return false
+        return moveLayer(idx, idx + 1)
+    }
+
+    fun moveLayerDown(id: String): Boolean {
+        val idx = layers.indexOfFirst { it.id == id }
+        if (idx <= 0) return false
+        return moveLayer(idx, idx - 1)
+    }
+
+    fun duplicateLayer(id: String, newId: String = UUID.randomUUID().toString(), newName: String? = null): CanvasLayer? {
+        val idx = layers.indexOfFirst { it.id == id }
+        if (idx < 0) return null
+        return duplicateLayer(idx, newId, newName)
+    }
+
+    fun duplicateLayer(index: Int, newId: String = UUID.randomUUID().toString(), newName: String? = null): CanvasLayer? {
+        if (index !in layers.indices) return null
+        val srcLayer = layers[index]
+        val dupLayer = CanvasLayer(
+            id = newId,
+            name = newName ?: "${srcLayer.name} Copy",
+            opacity = srcLayer.opacity,
+            isVisible = srcLayer.isVisible,
+            fbo = GlesFbo(width, height)
+        )
+        blitFbo(srcLayer.fbo, dupLayer.fbo)
+        val insertIdx = index + 1
+        layers.add(insertIdx, dupLayer)
+        activeLayerIndex = insertIdx
+        return dupLayer
+    }
+
+    fun mergeDown(id: String): CanvasLayer? {
+        val idx = layers.indexOfFirst { it.id == id }
+        if (idx <= 0) return null
+        return mergeDown(idx)
+    }
+
+    fun mergeDown(index: Int): CanvasLayer? {
+        if (index <= 0 || index !in layers.indices) return null
+        val upperLayer = layers[index]
+        val lowerLayer = layers[index - 1]
+
+        lowerLayer.fbo.bind()
+        GLES30.glViewport(0, 0, width, height)
+
+        val orthoM = FloatArray(16)
+        Matrix.orthoM(orthoM, 0, 0f, width.toFloat(), height.toFloat(), 0f, -1.0f, 1.0f)
+        val modelM = FloatArray(16)
+        Matrix.setIdentityM(modelM, 0)
+        Matrix.scaleM(modelM, 0, width.toFloat(), height.toFloat(), 1.0f)
+        val fboMvp = FloatArray(16)
+        Matrix.multiplyMM(fboMvp, 0, orthoM, 0, modelM, 0)
+
+        compositingShader.renderLayerQuad(
+            textureId = upperLayer.fbo.textureId,
+            opacity = upperLayer.opacity,
+            mvpMatrix = fboMvp
+        )
+        lowerLayer.fbo.unbind()
+
+        layers.removeAt(index)
+        upperLayer.release()
+        activeLayerIndex = (index - 1).coerceAtLeast(0)
+        return lowerLayer
+    }
+
+    fun setLayerOpacity(id: String, opacity: Float): Boolean {
+        val layer = layers.find { it.id == id } ?: return false
+        layer.opacity = opacity.coerceIn(0.0f, 1.0f)
+        return true
+    }
+
+    fun setLayerOpacity(index: Int, opacity: Float): Boolean {
+        if (index !in layers.indices) return false
+        layers[index].opacity = opacity.coerceIn(0.0f, 1.0f)
+        return true
+    }
+
+    fun setLayerVisibility(id: String, isVisible: Boolean): Boolean {
+        val layer = layers.find { it.id == id } ?: return false
+        layer.isVisible = isVisible
+        return true
+    }
+
+    fun setLayerVisibility(index: Int, isVisible: Boolean): Boolean {
+        if (index !in layers.indices) return false
+        layers[index].isVisible = isVisible
+        return true
     }
 
     /**
@@ -72,29 +271,32 @@ class SmartDrawRenderer(
      */
     fun resizeCanvas(newWidth: Int, newHeight: Int) {
         if (width == newWidth && height == newHeight) {
-            clear(1.0f, 1.0f, 1.0f, 1.0f)
+            clear(0.0f, 0.0f, 0.0f, 0.0f)
             return
         }
 
         width = newWidth
         height = newHeight
 
-        baseFbo.release()
+        for (layer in layers) {
+            layer.release()
+            layer.fbo = GlesFbo(width, height)
+        }
         scratchFbo.release()
         compositeFbo.release()
         activeStrokeFbo.release()
 
-        baseFbo = GlesFbo(width, height)
         scratchFbo = GlesFbo(width, height)
         compositeFbo = GlesFbo(width, height)
         activeStrokeFbo = GlesFbo(width, height)
 
-        clear(1.0f, 1.0f, 1.0f, 1.0f)
+        clear(0.0f, 0.0f, 0.0f, 0.0f)
     }
 
     fun loadBaseBitmap(bitmap: Bitmap) {
-        baseFbo.loadBitmap(bitmap)
-        blitFbo(baseFbo, scratchFbo)
+        val active = getActiveLayer()
+        active.fbo.loadBitmap(bitmap)
+        blitFbo(active.fbo, scratchFbo)
     }
 
     fun beginActiveStroke(previewColor: Int) {
@@ -549,18 +751,37 @@ class SmartDrawRenderer(
         val mvpMatrix = FloatArray(16)
         Matrix.multiplyMM(mvpMatrix, 0, projMatrix, 0, modelMatrix, 0)
 
-        GLES30.glDisable(GLES30.GL_BLEND)
+        // 1. Render solid canvas background
+        compositingShader.renderSolidQuad(solidBackgroundColor, mvpMatrix)
 
+        // 2. Render all canvas layers bottom-to-top using compositingShader.renderLayerQuad
+        val activeLayer = getActiveLayer()
         val hasActive = hasActiveStroke && activeStrokeFbo.textureId != 0
-        compositingShader.renderComposite(
-            baseTextureId = baseFbo.textureId,
-            referenceTextureId = referenceLayer.textureId,
-            referenceOpacity = referenceLayer.opacity,
-            renderReference = referenceLayer.isVisible && referenceLayer.textureId != 0,
-            activeStrokeTextureId = if (hasActive) activeStrokeFbo.textureId else 0,
-            backgroundColor = solidBackgroundColor,
-            mvpMatrix = mvpMatrix
-        )
+        for (layer in layers) {
+            if (!layer.isVisible || layer.opacity <= 0.001f) continue
+            compositingShader.renderLayerQuad(
+                textureId = layer.fbo.textureId,
+                opacity = layer.opacity,
+                mvpMatrix = mvpMatrix
+            )
+            // Render active stroke on top of the active layer
+            if (layer == activeLayer && hasActive) {
+                compositingShader.renderLayerQuad(
+                    textureId = activeStrokeFbo.textureId,
+                    opacity = layer.opacity,
+                    mvpMatrix = mvpMatrix
+                )
+            }
+        }
+
+        // 3. Render reference layer overlay if enabled
+        if (referenceLayer.isVisible && referenceLayer.textureId != 0 && referenceLayer.opacity > 0.001f) {
+            compositingShader.renderLayerQuad(
+                textureId = referenceLayer.textureId,
+                opacity = referenceLayer.opacity,
+                mvpMatrix = mvpMatrix
+            )
+        }
 
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
     }
@@ -619,7 +840,10 @@ class SmartDrawRenderer(
     }
 
     fun release() {
-        baseFbo.release()
+        for (layer in layers) {
+            layer.release()
+        }
+        layers.clear()
         scratchFbo.release()
         compositeFbo.release()
         activeStrokeFbo.release()
