@@ -49,16 +49,22 @@ class MainActivityUiTest {
         assertNotNull(btnMoreOptions)
         assertNotNull(drawView)
 
-        // Default tool is Pencil
-        assertEquals(SmartDrawView.ToolMode.PENCIL, drawView.toolMode)
+        // Default tool is Paintbrush
+        assertEquals(SmartDrawView.ToolMode.PAINTBRUSH, drawView.toolMode)
         assertTrue(drawView.useReferenceColors)
 
         // Tool settings callbacks
-        activity.onToolSelected(SmartDrawView.ToolMode.SMUDGE)
-        assertEquals(SmartDrawView.ToolMode.SMUDGE, drawView.toolMode)
+        activity.onToolSelected(SmartDrawView.ToolMode.PAINTBRUSH)
+        assertEquals(SmartDrawView.ToolMode.PAINTBRUSH, drawView.toolMode)
+
+        activity.onToolSelected(SmartDrawView.ToolMode.PEN)
+        assertEquals(SmartDrawView.ToolMode.PEN, drawView.toolMode)
 
         activity.onToolSelected(SmartDrawView.ToolMode.PENCIL)
         assertEquals(SmartDrawView.ToolMode.PENCIL, drawView.toolMode)
+
+        activity.onToolSelected(SmartDrawView.ToolMode.SMUDGE)
+        assertEquals(SmartDrawView.ToolMode.SMUDGE, drawView.toolMode)
 
         // Brush size and opacity changes
         activity.onBrushSizeChanged(32.0f)

@@ -104,7 +104,12 @@ class MainActivity : AppCompatActivity(),
                     p.isReferenceVisible = isSourceVisible
                     p.useReferenceColors = drawView.useReferenceColors
                     p.isRatchetEnabled = drawView.isRatchetEnabled
-                    p.activeTool = if (drawView.toolMode == SmartDrawView.ToolMode.PENCIL) "PENCIL" else "SMUDGE"
+                    p.activeTool = when (drawView.toolMode) {
+                        SmartDrawView.ToolMode.PAINTBRUSH -> "PAINTBRUSH"
+                        SmartDrawView.ToolMode.PEN -> "PEN"
+                        SmartDrawView.ToolMode.PENCIL -> "PENCIL"
+                        SmartDrawView.ToolMode.SMUDGE -> "SMUDGE"
+                    }
                     p.brushSize = drawView.getBrushSize()
                     p.brushOpacity = drawView.brushOpacity
                     p.manualBrushColor = drawView.brushColor
@@ -199,6 +204,8 @@ class MainActivity : AppCompatActivity(),
             showMoreOptionsModal()
         }
 
+        updateActiveToolUI()
+
         // Session Restoration / Cold Start
         restoreOrInitializeSession()
 
@@ -267,7 +274,12 @@ class MainActivity : AppCompatActivity(),
                     drawView.brushColor = project.manualBrushColor
                     drawView.useReferenceColors = project.useReferenceColors
                     drawView.setRatchetEnabled(project.isRatchetEnabled)
-                    drawView.toolMode = if (project.activeTool == "SMUDGE") SmartDrawView.ToolMode.SMUDGE else SmartDrawView.ToolMode.PENCIL
+                    drawView.toolMode = when (project.activeTool) {
+                        "SMUDGE" -> SmartDrawView.ToolMode.SMUDGE
+                        "PEN" -> SmartDrawView.ToolMode.PEN
+                        "PENCIL" -> SmartDrawView.ToolMode.PENCIL
+                        else -> SmartDrawView.ToolMode.PAINTBRUSH
+                    }
                     drawView.setBrushSize(project.brushSize)
                     drawView.brushOpacity = project.brushOpacity
 
@@ -403,10 +415,20 @@ class MainActivity : AppCompatActivity(),
 
     override fun onToolSelected(toolMode: SmartDrawView.ToolMode) {
         drawView.toolMode = toolMode
-        currentProject?.activeTool = if (toolMode == SmartDrawView.ToolMode.PENCIL) "PENCIL" else "SMUDGE"
+        currentProject?.activeTool = when (toolMode) {
+            SmartDrawView.ToolMode.PAINTBRUSH -> "PAINTBRUSH"
+            SmartDrawView.ToolMode.PEN -> "PEN"
+            SmartDrawView.ToolMode.PENCIL -> "PENCIL"
+            SmartDrawView.ToolMode.SMUDGE -> "SMUDGE"
+        }
         autoSaveManager.markDirty()
         updateActiveToolUI()
-        val name = if (toolMode == SmartDrawView.ToolMode.PENCIL) "Pencil" else "Smudge"
+        val name = when (toolMode) {
+            SmartDrawView.ToolMode.PAINTBRUSH -> "Paintbrush"
+            SmartDrawView.ToolMode.PEN -> "Pen"
+            SmartDrawView.ToolMode.PENCIL -> "Pencil"
+            SmartDrawView.ToolMode.SMUDGE -> "Smudge"
+        }
         statusText.text = "Tool: $name (size: ${drawView.getBrushSize().roundToInt()} px)"
     }
 
@@ -414,7 +436,12 @@ class MainActivity : AppCompatActivity(),
         drawView.setBrushSize(radius)
         currentProject?.brushSize = radius
         autoSaveManager.markDirty()
-        val name = if (drawView.toolMode == SmartDrawView.ToolMode.PENCIL) "Pencil" else "Smudge"
+        val name = when (drawView.toolMode) {
+            SmartDrawView.ToolMode.PAINTBRUSH -> "Paintbrush"
+            SmartDrawView.ToolMode.PEN -> "Pen"
+            SmartDrawView.ToolMode.PENCIL -> "Pencil"
+            SmartDrawView.ToolMode.SMUDGE -> "Smudge"
+        }
         statusText.text = "Tool: $name (size: ${radius.roundToInt()} px)"
     }
 
@@ -510,12 +537,23 @@ class MainActivity : AppCompatActivity(),
     // --- UI State Helpers ---
 
     private fun updateActiveToolUI() {
-        if (drawView.toolMode == SmartDrawView.ToolMode.PENCIL) {
-            btnActiveTool.setImageResource(R.drawable.ic_pencil)
-            btnActiveTool.contentDescription = "Active Tool: Pencil (Tap for settings)"
-        } else {
-            btnActiveTool.setImageResource(R.drawable.ic_smudge)
-            btnActiveTool.contentDescription = "Active Tool: Smudge (Tap for settings)"
+        when (drawView.toolMode) {
+            SmartDrawView.ToolMode.PAINTBRUSH -> {
+                btnActiveTool.setImageResource(R.drawable.ic_brush)
+                btnActiveTool.contentDescription = "Active Tool: Paintbrush (Tap for settings)"
+            }
+            SmartDrawView.ToolMode.PEN -> {
+                btnActiveTool.setImageResource(R.drawable.ic_pen)
+                btnActiveTool.contentDescription = "Active Tool: Pen (Tap for settings)"
+            }
+            SmartDrawView.ToolMode.PENCIL -> {
+                btnActiveTool.setImageResource(R.drawable.ic_pencil)
+                btnActiveTool.contentDescription = "Active Tool: Pencil (Tap for settings)"
+            }
+            SmartDrawView.ToolMode.SMUDGE -> {
+                btnActiveTool.setImageResource(R.drawable.ic_smudge)
+                btnActiveTool.contentDescription = "Active Tool: Smudge (Tap for settings)"
+            }
         }
     }
 

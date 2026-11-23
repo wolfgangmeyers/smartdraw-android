@@ -50,13 +50,13 @@
             android:orientation="horizontal"
             android:layout_marginBottom="20dp">
 
-            <!-- Pencil Card Button -->
+            <!-- Paintbrush Card Button -->
             <LinearLayout
-                android:id="@+id/cardToolPencil"
+                android:id="@+id/cardToolBrush"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginEnd="6dp"
+                android:layout_marginEnd="4dp"
                 android:orientation="vertical"
                 android:gravity="center"
                 android:paddingTop="12dp"
@@ -66,11 +66,83 @@
                 android:focusable="true">
 
                 <ImageView
+                    android:id="@+id/iconBrush"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:src="@drawable/ic_brush"
+                    android:tint="#2979FF"
+                    android:contentDescription="Paintbrush" />
+
+                <TextView
+                    android:id="@+id/textBrush"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="Brush"
+                    android:textColor="#FFFFFF"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
+
+            <!-- Pen Card Button -->
+            <LinearLayout
+                android:id="@+id/cardToolPen"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:paddingTop="12dp"
+                android:paddingBottom="12dp"
+                android:background="@drawable/bg_tool_card_inactive"
+                android:clickable="true"
+                android:focusable="true">
+
+                <ImageView
+                    android:id="@+id/iconPen"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:src="@drawable/ic_pen"
+                    android:tint="#B0B0B0"
+                    android:contentDescription="Pen" />
+
+                <TextView
+                    android:id="@+id/textPen"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="Pen"
+                    android:textColor="#B0B0B0"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
+
+            <!-- Pencil Card Button -->
+            <LinearLayout
+                android:id="@+id/cardToolPencil"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:paddingTop="12dp"
+                android:paddingBottom="12dp"
+                android:background="@drawable/bg_tool_card_inactive"
+                android:clickable="true"
+                android:focusable="true">
+
+                <ImageView
                     android:id="@+id/iconPencil"
                     android:layout_width="32dp"
                     android:layout_height="32dp"
                     android:src="@drawable/ic_pencil"
-                    android:tint="#2979FF"
+                    android:tint="#B0B0B0"
                     android:contentDescription="Pencil" />
 
                 <TextView
@@ -79,8 +151,8 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:text="Pencil"
-                    android:textColor="#FFFFFF"
-                    android:textSize="14sp"
+                    android:textColor="#B0B0B0"
+                    android:textSize="13sp"
                     android:textStyle="bold" />
 
             </LinearLayout>
@@ -91,7 +163,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginStart="6dp"
+                android:layout_marginStart="4dp"
                 android:orientation="vertical"
                 android:gravity="center"
                 android:paddingTop="12dp"
@@ -115,7 +187,7 @@
                     android:layout_marginTop="6dp"
                     android:text="Smudge"
                     android:textColor="#B0B0B0"
-                    android:textSize="14sp"
+                    android:textSize="13sp"
                     android:textStyle="bold" />
 
             </LinearLayout>

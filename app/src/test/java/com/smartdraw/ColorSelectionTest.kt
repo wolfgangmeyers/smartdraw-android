@@ -103,7 +103,7 @@ class ColorSelectionTest {
     fun testToolSettingsBottomSheetCleanFocus() {
         val activity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
         val sheet = ToolSettingsBottomSheet.newInstance(
-            toolMode = SmartDrawView.ToolMode.PENCIL,
+            toolMode = SmartDrawView.ToolMode.PAINTBRUSH,
             brushRadius = 24.0f,
             brushOpacity = 0.8f,
             brushColor = Color.BLUE,
@@ -130,6 +130,8 @@ class ColorSelectionTest {
         activity.supportFragmentManager.executePendingTransactions()
 
         val view = sheet.requireView()
+        val cardBrush: LinearLayout = view.findViewById(R.id.cardToolBrush)
+        val cardPen: LinearLayout = view.findViewById(R.id.cardToolPen)
         val cardPencil: LinearLayout = view.findViewById(R.id.cardToolPencil)
         val cardSmudge: LinearLayout = view.findViewById(R.id.cardToolSmudge)
 
@@ -138,9 +140,17 @@ class ColorSelectionTest {
         assertEquals(SmartDrawView.ToolMode.SMUDGE, selectedTool)
         assertEquals(SmartDrawView.ToolMode.SMUDGE, sheet.currentTool)
 
+        cardPen.performClick()
+        assertEquals(SmartDrawView.ToolMode.PEN, selectedTool)
+        assertEquals(SmartDrawView.ToolMode.PEN, sheet.currentTool)
+
         cardPencil.performClick()
         assertEquals(SmartDrawView.ToolMode.PENCIL, selectedTool)
         assertEquals(SmartDrawView.ToolMode.PENCIL, sheet.currentTool)
+
+        cardBrush.performClick()
+        assertEquals(SmartDrawView.ToolMode.PAINTBRUSH, selectedTool)
+        assertEquals(SmartDrawView.ToolMode.PAINTBRUSH, sheet.currentTool)
 
         // Verify color controls are NOT in ToolSettingsBottomSheet
         assertNull("Color section should not be in tool settings", view.findViewById<SeekBar?>(R.id.sliderRed))

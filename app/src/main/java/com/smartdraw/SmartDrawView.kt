@@ -23,11 +23,19 @@ class SmartDrawView @JvmOverloads constructor(
 ) : GLSurfaceView(context, attrs), GLSurfaceView.Renderer {
 
     enum class ToolMode {
+        PAINTBRUSH,
+        PEN,
         PENCIL,
         SMUDGE
     }
 
-    var toolMode: ToolMode = ToolMode.PENCIL
+    var toolMode: ToolMode = ToolMode.PAINTBRUSH
+        set(value) {
+            field = value
+            if (::touchHandler.isInitialized) {
+                touchHandler.toolMode = value
+            }
+        }
 
     var onBrushColorChanged: ((Int) -> Unit)? = null
     var onColorSampled: ((Int) -> Unit)? = null
@@ -165,6 +173,7 @@ class SmartDrawView @JvmOverloads constructor(
         touchHandler = TouchInputHandler(
             baseRadius = brushRadius,
             baseOpacity = brushOpacity,
+            toolMode = toolMode,
             screenToCanvasTransformer = { sx, sy ->
                 screenToCanvas(sx, sy)
             },
@@ -186,7 +195,7 @@ class SmartDrawView @JvmOverloads constructor(
                 activeStrokeStartColor = preview
                 queueEvent {
                     val r = rendererInstance ?: return@queueEvent
-                    if (toolMode == ToolMode.PENCIL) {
+                    if (toolMode != ToolMode.SMUDGE) {
                         r.beginActiveStroke(preview)
                     }
                     requestRender()
@@ -196,6 +205,8 @@ class SmartDrawView @JvmOverloads constructor(
                 queueEvent {
                     val r = rendererInstance ?: return@queueEvent
                     when (toolMode) {
+                        ToolMode.PAINTBRUSH,
+                        ToolMode.PEN,
                         ToolMode.PENCIL -> {
                             r.drawActiveStrokeSegment(
                                 curve = curve,
@@ -222,7 +233,7 @@ class SmartDrawView @JvmOverloads constructor(
                 queueEvent {
                     val r = rendererInstance ?: return@queueEvent
                     var committed = true
-                    if (toolMode == ToolMode.PENCIL) {
+                    if (toolMode != ToolMode.SMUDGE) {
                         committed = r.endActiveStroke(
                             useReferenceColors = useReferenceColors,
                             defaultColor = brushColor,

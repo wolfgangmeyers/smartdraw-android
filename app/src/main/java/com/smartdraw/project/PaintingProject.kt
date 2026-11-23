@@ -13,7 +13,7 @@ data class PaintingProject(
     var isReferenceVisible: Boolean = true,
     var useReferenceColors: Boolean = true,
     var isRatchetEnabled: Boolean = false,
-    var activeTool: String = "PENCIL",
+    var activeTool: String = "PAINTBRUSH",
     var brushSize: Float = 20.0f,
     var brushOpacity: Float = 1.0f,
     var manualBrushColor: Int = Color.BLACK,

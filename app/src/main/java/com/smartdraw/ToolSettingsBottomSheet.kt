@@ -22,14 +22,21 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
     }
 
     var listener: Listener? = null
-    var currentTool: SmartDrawView.ToolMode = SmartDrawView.ToolMode.PENCIL
+    var currentTool: SmartDrawView.ToolMode = SmartDrawView.ToolMode.PAINTBRUSH
     var currentBrushRadius: Float = 16.0f
     var currentBrushOpacity: Float = 1.0f
     var currentBrushColor: Int = Color.BLACK
     var useReferenceColors: Boolean = false
 
+    private lateinit var cardToolBrush: LinearLayout
+    private lateinit var cardToolPen: LinearLayout
     private lateinit var cardToolPencil: LinearLayout
     private lateinit var cardToolSmudge: LinearLayout
+
+    private lateinit var iconBrush: ImageView
+    private lateinit var textBrush: TextView
+    private lateinit var iconPen: ImageView
+    private lateinit var textPen: TextView
     private lateinit var iconPencil: ImageView
     private lateinit var textPencil: TextView
     private lateinit var iconSmudge: ImageView
@@ -75,8 +82,15 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        cardToolBrush = view.findViewById(R.id.cardToolBrush)
+        cardToolPen = view.findViewById(R.id.cardToolPen)
         cardToolPencil = view.findViewById(R.id.cardToolPencil)
         cardToolSmudge = view.findViewById(R.id.cardToolSmudge)
+
+        iconBrush = view.findViewById(R.id.iconBrush)
+        textBrush = view.findViewById(R.id.textBrush)
+        iconPen = view.findViewById(R.id.iconPen)
+        textPen = view.findViewById(R.id.textPen)
         iconPencil = view.findViewById(R.id.iconPencil)
         textPencil = view.findViewById(R.id.textPencil)
         iconSmudge = view.findViewById(R.id.iconSmudge)
@@ -105,6 +119,22 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
         textBrushOpacityValue.text = "$opacityPercent%"
 
         updateToolSelectionUI()
+
+        cardToolBrush.setOnClickListener {
+            if (currentTool != SmartDrawView.ToolMode.PAINTBRUSH) {
+                currentTool = SmartDrawView.ToolMode.PAINTBRUSH
+                updateToolSelectionUI()
+                listener?.onToolSelected(currentTool)
+            }
+        }
+
+        cardToolPen.setOnClickListener {
+            if (currentTool != SmartDrawView.ToolMode.PEN) {
+                currentTool = SmartDrawView.ToolMode.PEN
+                updateToolSelectionUI()
+                listener?.onToolSelected(currentTool)
+            }
+        }
 
         cardToolPencil.setOnClickListener {
             if (currentTool != SmartDrawView.ToolMode.PENCIL) {
@@ -151,26 +181,48 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
     }
 
     private fun updateToolSelectionUI() {
-        if (currentTool == SmartDrawView.ToolMode.PENCIL) {
-            cardToolPencil.setBackgroundResource(R.drawable.bg_tool_card_active)
-            iconPencil.setColorFilter(0xFF2979FF.toInt())
-            textPencil.setTextColor(0xFFFFFFFF.toInt())
+        // Reset all cards to inactive style
+        cardToolBrush.setBackgroundResource(R.drawable.bg_tool_card_inactive)
+        iconBrush.setColorFilter(0xFFB0B0B0.toInt())
+        textBrush.setTextColor(0xFFB0B0B0.toInt())
 
-            cardToolSmudge.setBackgroundResource(R.drawable.bg_tool_card_inactive)
-            iconSmudge.setColorFilter(0xFFB0B0B0.toInt())
-            textSmudge.setTextColor(0xFFB0B0B0.toInt())
+        cardToolPen.setBackgroundResource(R.drawable.bg_tool_card_inactive)
+        iconPen.setColorFilter(0xFFB0B0B0.toInt())
+        textPen.setTextColor(0xFFB0B0B0.toInt())
 
-            textSettingsSectionTitle.text = "PENCIL SETTINGS"
-        } else {
-            cardToolPencil.setBackgroundResource(R.drawable.bg_tool_card_inactive)
-            iconPencil.setColorFilter(0xFFB0B0B0.toInt())
-            textPencil.setTextColor(0xFFB0B0B0.toInt())
+        cardToolPencil.setBackgroundResource(R.drawable.bg_tool_card_inactive)
+        iconPencil.setColorFilter(0xFFB0B0B0.toInt())
+        textPencil.setTextColor(0xFFB0B0B0.toInt())
 
-            cardToolSmudge.setBackgroundResource(R.drawable.bg_tool_card_active)
-            iconSmudge.setColorFilter(0xFF2979FF.toInt())
-            textSmudge.setTextColor(0xFFFFFFFF.toInt())
+        cardToolSmudge.setBackgroundResource(R.drawable.bg_tool_card_inactive)
+        iconSmudge.setColorFilter(0xFFB0B0B0.toInt())
+        textSmudge.setTextColor(0xFFB0B0B0.toInt())
 
-            textSettingsSectionTitle.text = "SMUDGE SETTINGS"
+        when (currentTool) {
+            SmartDrawView.ToolMode.PAINTBRUSH -> {
+                cardToolBrush.setBackgroundResource(R.drawable.bg_tool_card_active)
+                iconBrush.setColorFilter(0xFF2979FF.toInt())
+                textBrush.setTextColor(0xFFFFFFFF.toInt())
+                textSettingsSectionTitle.text = "PAINTBRUSH SETTINGS"
+            }
+            SmartDrawView.ToolMode.PEN -> {
+                cardToolPen.setBackgroundResource(R.drawable.bg_tool_card_active)
+                iconPen.setColorFilter(0xFF2979FF.toInt())
+                textPen.setTextColor(0xFFFFFFFF.toInt())
+                textSettingsSectionTitle.text = "PEN SETTINGS"
+            }
+            SmartDrawView.ToolMode.PENCIL -> {
+                cardToolPencil.setBackgroundResource(R.drawable.bg_tool_card_active)
+                iconPencil.setColorFilter(0xFF2979FF.toInt())
+                textPencil.setTextColor(0xFFFFFFFF.toInt())
+                textSettingsSectionTitle.text = "PENCIL SETTINGS"
+            }
+            SmartDrawView.ToolMode.SMUDGE -> {
+                cardToolSmudge.setBackgroundResource(R.drawable.bg_tool_card_active)
+                iconSmudge.setColorFilter(0xFF2979FF.toInt())
+                textSmudge.setTextColor(0xFFFFFFFF.toInt())
+                textSettingsSectionTitle.text = "SMUDGE SETTINGS"
+            }
         }
     }
 }
