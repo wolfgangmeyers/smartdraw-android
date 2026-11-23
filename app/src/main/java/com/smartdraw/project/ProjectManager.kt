@@ -7,6 +7,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.util.Log
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -280,12 +281,44 @@ class ProjectManager(private val context: Context) {
             put("brushSize", project.brushSize.toDouble())
             put("brushOpacity", project.brushOpacity.toDouble())
             put("manualBrushColor", project.manualBrushColor)
+
+            val layersArray = JSONArray()
+            for (l in project.layers) {
+                val lObj = JSONObject().apply {
+                    put("id", l.id)
+                    put("name", l.name)
+                    put("opacity", l.opacity.toDouble())
+                    put("isVisible", l.isVisible)
+                }
+                layersArray.put(lObj)
+            }
+            put("layers", layersArray)
+            if (project.activeLayerId != null) {
+                put("activeLayerId", project.activeLayerId)
+            }
         }
         atomicWriteText(metaFile, json.toString(2))
     }
 
     private fun parseMetadata(jsonStr: String): PaintingProject {
         val json = JSONObject(jsonStr)
+        val layers = mutableListOf<LayerMetadata>()
+        val layersArray = json.optJSONArray("layers")
+        if (layersArray != null) {
+            for (i in 0 until layersArray.length()) {
+                val lObj = layersArray.getJSONObject(i)
+                layers.add(
+                    LayerMetadata(
+                        id = lObj.getString("id"),
+                        name = lObj.optString("name", "Layer ${i + 1}"),
+                        opacity = lObj.optDouble("opacity", 1.0).toFloat(),
+                        isVisible = lObj.optBoolean("isVisible", true)
+                    )
+                )
+            }
+        }
+        val activeLayerId = json.optString("activeLayerId").takeIf { it.isNotEmpty() }
+
         return PaintingProject(
             id = json.getString("id"),
             title = json.optString("title", "Untitled Painting"),
@@ -300,7 +333,9 @@ class ProjectManager(private val context: Context) {
             activeTool = json.optString("activeTool", "PENCIL"),
             brushSize = json.optDouble("brushSize", 20.0).toFloat(),
             brushOpacity = json.optDouble("brushOpacity", 1.0).toFloat(),
-            manualBrushColor = json.optInt("manualBrushColor", Color.BLACK)
+            manualBrushColor = json.optInt("manualBrushColor", Color.BLACK),
+            layers = layers,
+            activeLayerId = activeLayerId
         )
     }
 

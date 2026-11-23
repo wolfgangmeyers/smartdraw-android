@@ -215,4 +215,31 @@ class ProjectManagerTest {
         assertEquals(800, project?.canvasWidth)
         assertEquals(600, project?.canvasHeight)
     }
+
+    @Test
+    fun testLayerMetadataPersistence() {
+        val project = projectManager.createNewProject(512, 512, "Layers Project")
+        val layers = listOf(
+            LayerMetadata(id = "layer-1", name = "Ink", opacity = 1.0f, isVisible = true),
+            LayerMetadata(id = "layer-2", name = "Color", opacity = 0.75f, isVisible = false)
+        )
+        project.layers = layers
+        project.activeLayerId = "layer-2"
+
+        val dummyBmp = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
+        projectManager.saveProject(project, dummyBmp, null, isDirty = true)
+        dummyBmp.recycle()
+
+        val loaded = projectManager.loadProject(project.id)
+        assertNotNull(loaded.project)
+        assertEquals(2, loaded.project.layers.size)
+        assertEquals("Ink", loaded.project.layers[0].name)
+        assertEquals(1.0f, loaded.project.layers[0].opacity, 0.001f)
+        assertTrue(loaded.project.layers[0].isVisible)
+
+        assertEquals("Color", loaded.project.layers[1].name)
+        assertEquals(0.75f, loaded.project.layers[1].opacity, 0.001f)
+        assertFalse(loaded.project.layers[1].isVisible)
+        assertEquals("layer-2", loaded.project.activeLayerId)
+    }
 }

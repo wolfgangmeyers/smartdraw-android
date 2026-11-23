@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_bottom_sheet"
+    android:paddingStart="20dp"
+    android:paddingEnd="20dp"
+    android:paddingTop="12dp"
+    android:paddingBottom="28dp">
+
+    <!-- Drag handle -->
+    <View
+        android:layout_width="36dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:background="@drawable/bg_sheet_drag_handle"
+        android:layout_marginBottom="16dp" />
+
+    <!-- Title Row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="16dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Layers"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/textLayerCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="1 layer"
+            android:textColor="#9E9E9E"
+            android:textSize="13sp" />
+
+    </LinearLayout>
+
+    <!-- Action Toolbar: Add (+), Duplicate, Merge Down, Move Up (▲), Move Down (▼), Delete (Trash) -->
+    <LinearLayout
+        android:id="@+id/toolbarLayerActions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_marginBottom="18dp">
+
+        <!-- Add Layer (+) -->
+        <ImageButton
+            android:id="@+id/btnAddLayer"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/bg_tool_button_inactive"
+            android:src="@drawable/ic_add"
+            android:tint="#FFFFFF"
+            android:scaleType="centerInside"
+            android:contentDescription="Add Layer" />
+
+        <!-- Duplicate -->
+        <ImageButton
+            android:id="@+id/btnDuplicateLayer"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/bg_tool_button_inactive"
+            android:src="@drawable/ic_copy"
+            android:tint="#FFFFFF"
+            android:scaleType="centerInside"
+            android:contentDescription="Duplicate Layer" />
+
+        <!-- Merge Down -->
+        <ImageButton
+            android:id="@+id/btnMergeDown"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/bg_tool_button_inactive"
+            android:src="@drawable/ic_merge"
+            android:tint="#FFFFFF"
+            android:scaleType="centerInside"
+            android:contentDescription="Merge Down" />
+
+        <!-- Move Up (▲) -->
+        <ImageButton
+            android:id="@+id/btnMoveUp"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/bg_tool_button_inactive"
+            android:src="@drawable/ic_arrow_up"
+            android:tint="#FFFFFF"
+            android:scaleType="centerInside"
+            android:contentDescription="Move Up" />
+
+        <!-- Move Down (▼) -->
+        <ImageButton
+            android:id="@+id/btnMoveDown"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/bg_tool_button_inactive"
+            android:src="@drawable/ic_arrow_down"
+            android:tint="#FFFFFF"
+            android:scaleType="centerInside"
+            android:contentDescription="Move Down" />
+
+        <!-- Delete (Trash) -->
+        <ImageButton
+            android:id="@+id/btnDeleteLayer"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_tool_button_inactive"
+            android:src="@drawable/ic_delete"
+            android:tint="#FF5252"
+            android:scaleType="centerInside"
+            android:contentDescription="Delete Layer" />
+
+    </LinearLayout>
+
+    <!-- Layers List Container -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recyclerLayers"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:maxHeight="360dp"
+        android:scrollbars="vertical"
+        android:overScrollMode="never" />
+
+</LinearLayout>

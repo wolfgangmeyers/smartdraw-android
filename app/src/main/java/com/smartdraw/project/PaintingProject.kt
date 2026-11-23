@@ -16,5 +16,7 @@ data class PaintingProject(
     var activeTool: String = "PENCIL",
     var brushSize: Float = 20.0f,
     var brushOpacity: Float = 1.0f,
-    var manualBrushColor: Int = Color.BLACK
+    var manualBrushColor: Int = Color.BLACK,
+    var layers: List<LayerMetadata> = emptyList(),
+    var activeLayerId: String? = null
 )

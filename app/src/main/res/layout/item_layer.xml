@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/cardLayer"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:layout_marginTop="4dp"
+    android:layout_marginBottom="4dp"
+    android:background="@drawable/bg_tool_card_inactive"
+    android:padding="12dp"
+    android:clickable="true"
+    android:focusable="true">
+
+    <!-- Top Row: Active Indicator, Name, Opacity %, Visibility Toggle -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <!-- Active Layer Indicator Dot -->
+        <View
+            android:id="@+id/indicatorActiveLayer"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:layout_marginEnd="10dp"
+            android:background="@drawable/bg_tool_button_active" />
+
+        <!-- Layer Name -->
+        <TextView
+            android:id="@+id/textLayerName"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Layer 1"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <!-- Opacity Label -->
+        <TextView
+            android:id="@+id/textLayerOpacity"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="100%"
+            android:textColor="#9E9E9E"
+            android:textSize="13sp"
+            android:layout_marginEnd="10dp" />
+
+        <!-- Visibility Toggle (Eye) -->
+        <ImageButton
+            android:id="@+id/btnLayerVisibility"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="@drawable/btn_icon_selector"
+            android:src="@drawable/ic_visibility"
+            android:tint="#FFFFFF"
+            android:scaleType="centerInside"
+            android:contentDescription="Toggle Visibility" />
+
+    </LinearLayout>
+
+    <!-- Bottom Row: Opacity Slider (0-100%) -->
+    <LinearLayout
+        android:id="@+id/layoutOpacitySlider"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="8dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Opacity"
+            android:textColor="#757575"
+            android:textSize="11sp"
+            android:layout_marginEnd="8dp" />
+
+        <SeekBar
+            android:id="@+id/sliderLayerOpacity"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:max="100"
+            android:progress="100"
+            android:progressTint="#2979FF"
+            android:thumbTint="#2979FF" />
+
+    </LinearLayout>
+
+</LinearLayout>
