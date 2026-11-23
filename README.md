@@ -29,15 +29,15 @@ Native Android reference-guided painting and sketch application built in Kotlin 
 
 ### 4. Streamlined Icon-Only Toolbar & Active Tool Switcher
 - **Uncluttered 5-Icon Top Bar**:
-  - `btnActiveTool`: Displays active tool icon (Pencil / Smudge) with active surface highlight.
+  - `btnActiveTool`: Displays active tool icon (Paintbrush / Pen / Smudge) with active surface highlight.
   - `btnAutoColor`: Color sampling eyedropper with active/inactive visual highlight.
   - `btnResetView`: Snaps viewport to 1:1 aspect-fit centered.
   - `btnGallery`: Opens the multi-painting gallery modal.
   - `btnMoreOptions`: Overflow ellipsis (`...`) opening secondary settings.
 - **Tool Settings Bottom Sheet (`ToolSettingsBottomSheet`)**:
-  - Direct selection cards for **Pencil** and **Smudge** tools.
+  - Direct selection cards for **Paintbrush**, **Pen**, and **Smudge** tools.
   - Interactive live **Brush Preview Ring** (`BrushPreviewView`) rendering antialiased stamps dynamically updating with radius and opacity changes.
-  - Brush Size Slider: $2\text{ px}$ to $100\text{ px}$ with real-time numeric readout.
+  - Brush Size Slider: $0.5\text{ px}$ to $100\text{ px}$ in fine $0.5\text{ px}$ steps with real-time numeric readout.
   - Brush Opacity Slider: $1\%$ to $100\%$ with real-time percentage readout.
 
 ### 5. Nested Source Image & Overflow Options Sheet (`MoreOptionsBottomSheet`)
@@ -91,7 +91,7 @@ Native Android reference-guided painting and sketch application built in Kotlin 
 ### Top Toolbar Controls
 | Icon Button | Name | Action / Behavior |
 | :--- | :--- | :--- |
-| **Pencil / Smudge** | Active Tool | Tapping opens the **Tool Settings Bottom Sheet** to switch tools or adjust size & opacity. |
+| **Tool (Brush/Pen/Smudge)** | Active Tool | Tapping opens the **Tool Settings Bottom Sheet** to switch tools or adjust size & opacity. |
 | **Eyedropper** | Auto Color | Toggles dynamic reference color sampling along stroke paths. Highlights when active. |
 | **Target Frame** | Reset View | Instantly resets canvas viewport to 1:1 aspect-fit centered with $0^\circ$ rotation. |
 | **Grid / Image** | Gallery | Opens the **Paintings Gallery** to switch, create, or delete painting projects. |
@@ -134,7 +134,7 @@ filesDir/
   "isReferenceVisible": true,
   "useReferenceColors": true,
   "isRatchetEnabled": false,
-  "activeTool": "PENCIL",
+  "activeTool": "PAINTBRUSH",
   "brushSize": 24.0,
   "brushOpacity": 0.85
 }

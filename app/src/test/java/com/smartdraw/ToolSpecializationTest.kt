@@ -29,10 +29,9 @@ class ToolSpecializationTest {
     @Test
     fun testToolModeEnumValues() {
         val modes = SmartDrawView.ToolMode.values()
-        assertEquals(4, modes.size)
+        assertEquals(3, modes.size)
         assertTrue(modes.contains(SmartDrawView.ToolMode.PAINTBRUSH))
         assertTrue(modes.contains(SmartDrawView.ToolMode.PEN))
-        assertTrue(modes.contains(SmartDrawView.ToolMode.PENCIL))
         assertTrue(modes.contains(SmartDrawView.ToolMode.SMUDGE))
     }
 
@@ -92,27 +91,10 @@ class ToolSpecializationTest {
         }
     }
 
-    @Test
-    fun testPressureTransferFunctionPencil() {
-        // Pencil: Opacity modulates with pressure: alpha = baseOpacity * pressure. Radius = baseRadius (constant)
-        val baseRadius = 12.0f
-        val baseOpacity = 0.9f
 
-        val pressures = floatArrayOf(0.05f, 0.2f, 0.5f, 0.85f, 1.0f)
-        for (p in pressures) {
-            val (r, alpha) = TouchInputHandler.computeEffectiveRadiusAndOpacity(
-                toolMode = SmartDrawView.ToolMode.PENCIL,
-                baseRadius = baseRadius,
-                baseOpacity = baseOpacity,
-                pressure = p
-            )
-            assertEquals("Pencil radius must remain strictly constant regardless of pressure", baseRadius, r, 0.001f)
-            assertEquals("Pencil opacity must modulate linearly with pressure", baseOpacity * p, alpha, 0.001f)
-        }
-    }
 
     @Test
-    fun testRendererStrokeRadiiConstantForPenAndPencil() {
+    fun testRendererStrokeRadiiConstantForPenAndModulatesForBrush() {
         val renderer = SmartDrawRenderer(256, 256)
         val baseRadius = 16.0f
 
@@ -137,22 +119,7 @@ class ToolSpecializationTest {
             assertEquals("PEN activeStrokeRadii must be strictly constant", baseRadius, r, 0.001f)
         }
 
-        // 2. PENCIL: activeStrokeRadii must be strictly constant across all sampled points
-        renderer.clearActiveStroke()
-        renderer.drawActiveStrokeSegment(
-            curve = curve,
-            radius = baseRadius,
-            opacity = 1.0f,
-            previewColor = Color.BLACK,
-            spacingRatio = 0.2f,
-            toolMode = SmartDrawView.ToolMode.PENCIL
-        )
-        assertTrue(renderer.activeStrokeRadii.isNotEmpty())
-        for (r in renderer.activeStrokeRadii) {
-            assertEquals("PENCIL activeStrokeRadii must be strictly constant", baseRadius, r, 0.001f)
-        }
-
-        // 3. PAINTBRUSH: activeStrokeRadii must modulate with touch pressure
+        // 2. PAINTBRUSH: activeStrokeRadii must modulate with touch pressure
         renderer.clearActiveStroke()
         renderer.drawActiveStrokeSegment(
             curve = curve,
@@ -238,11 +205,6 @@ class ToolSpecializationTest {
         activity.onToolSelected(SmartDrawView.ToolMode.PEN)
         assertEquals(SmartDrawView.ToolMode.PEN, drawView.toolMode)
         assertEquals("Active Tool: Pen (Tap for settings)", btnActiveTool.contentDescription)
-
-        // Select Pencil
-        activity.onToolSelected(SmartDrawView.ToolMode.PENCIL)
-        assertEquals(SmartDrawView.ToolMode.PENCIL, drawView.toolMode)
-        assertEquals("Active Tool: Pencil (Tap for settings)", btnActiveTool.contentDescription)
 
         // Select Smudge
         activity.onToolSelected(SmartDrawView.ToolMode.SMUDGE)

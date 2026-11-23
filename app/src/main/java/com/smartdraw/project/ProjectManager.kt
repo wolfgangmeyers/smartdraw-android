@@ -330,7 +330,7 @@ class ProjectManager(private val context: Context) {
             isReferenceVisible = json.optBoolean("isReferenceVisible", true),
             useReferenceColors = json.optBoolean("useReferenceColors", true),
             isRatchetEnabled = json.optBoolean("isRatchetEnabled", false),
-            activeTool = json.optString("activeTool", "PENCIL"),
+            activeTool = json.optString("activeTool", "PAINTBRUSH"),
             brushSize = json.optDouble("brushSize", 20.0).toFloat(),
             brushOpacity = json.optDouble("brushOpacity", 1.0).toFloat(),
             manualBrushColor = json.optInt("manualBrushColor", Color.BLACK),

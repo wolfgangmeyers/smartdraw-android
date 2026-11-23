@@ -94,20 +94,16 @@ object RatchetEvaluator {
         for (i in segments.indices) {
             val (curve, radius, opacity) = segments[i]
             val mode = toolModes?.getOrNull(i) ?: com.smartdraw.SmartDrawView.ToolMode.PAINTBRUSH
-            val stepSize = max(0.5f, radius * spacingRatio)
+            val stepSize = max(0.25f, radius * spacingRatio)
             val samples = curve.sampleUniform(stepSize)
             val segOpacity = baseAlpha * opacity
 
             for (pt in samples) {
                 val effRadius = when (mode) {
-                    com.smartdraw.SmartDrawView.ToolMode.PEN,
-                    com.smartdraw.SmartDrawView.ToolMode.PENCIL -> radius
+                    com.smartdraw.SmartDrawView.ToolMode.PEN -> radius
                     else -> radius * pt.pressure
                 }
-                val effOpacity = when (mode) {
-                    com.smartdraw.SmartDrawView.ToolMode.PENCIL -> segOpacity * pt.pressure
-                    else -> segOpacity
-                }
+                val effOpacity = segOpacity
                 val rSq = effRadius * effRadius
                 val stampMinX = max(box.x0, (pt.x - effRadius).toInt())
                 val stampMaxX = min(box.x0 + boxW - 1, (pt.x + effRadius).toInt())

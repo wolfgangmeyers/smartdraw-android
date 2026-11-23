@@ -332,7 +332,7 @@ class SmartDrawRenderer(
 
         activeStrokeSegments.add(ActiveStrokeSegment(curve, radius, opacity, toolMode))
 
-        val stepSize = max(0.5f, radius * spacingRatio)
+        val stepSize = max(0.25f, radius * spacingRatio)
         val samples = curve.sampleUniform(stepSize)
 
         val r = Color.red(previewColor) / 255f
@@ -359,12 +359,6 @@ class SmartDrawRenderer(
                     stampRadius = radius
                     stampPressure = 1.0f
                     stampAlpha = baseAlpha
-                    activeStrokeRadii.add(radius)
-                }
-                SmartDrawView.ToolMode.PENCIL -> {
-                    stampRadius = radius
-                    stampPressure = 1.0f
-                    stampAlpha = baseAlpha * pt.pressure
                     activeStrokeRadii.add(radius)
                 }
                 SmartDrawView.ToolMode.PAINTBRUSH,
@@ -491,7 +485,7 @@ class SmartDrawRenderer(
         val baseAlpha = Color.alpha(finalColor) / 255f
 
         for (seg in activeStrokeSegments) {
-            val stepSize = max(0.5f, seg.radius * spacingRatio)
+            val stepSize = max(0.25f, seg.radius * spacingRatio)
             val samples = seg.curve.sampleUniform(stepSize)
             val baseSegAlpha = baseAlpha * seg.opacity
 
@@ -505,11 +499,6 @@ class SmartDrawRenderer(
                         stampRadius = seg.radius
                         stampPressure = 1.0f
                         stampAlpha = baseSegAlpha
-                    }
-                    SmartDrawView.ToolMode.PENCIL -> {
-                        stampRadius = seg.radius
-                        stampPressure = 1.0f
-                        stampAlpha = baseSegAlpha * pt.pressure
                     }
                     SmartDrawView.ToolMode.PAINTBRUSH,
                     SmartDrawView.ToolMode.SMUDGE -> {
@@ -606,7 +595,7 @@ class SmartDrawRenderer(
         spacingRatio: Float = 0.25f
     ) {
         val dist = hypot(x2 - x1, y2 - y1)
-        val step = max(0.5f, radius * spacingRatio)
+        val step = max(0.25f, radius * spacingRatio)
         val steps = max(1, (dist / step).toInt())
 
         baseFbo.bind()
@@ -649,7 +638,7 @@ class SmartDrawRenderer(
         useReferenceColors: Boolean = false,
         spacingRatio: Float = 0.25f
     ) {
-        val stepSize = max(0.5f, baseRadius * spacingRatio)
+        val stepSize = max(0.25f, baseRadius * spacingRatio)
         val samples = curve.sampleUniform(stepSize)
 
         val strokeColor = if (useReferenceColors) {
@@ -749,7 +738,7 @@ class SmartDrawRenderer(
         spacingRatio: Float = 0.25f
     ) {
         val dist = hypot(x2 - x1, y2 - y1)
-        val step = max(1.0f, radius * spacingRatio)
+        val step = max(0.5f, radius * spacingRatio)
         val steps = max(1, (dist / step).toInt())
 
         for (i in 0..steps) {
@@ -767,7 +756,7 @@ class SmartDrawRenderer(
         opacity: Float = 0.5f,
         spacingRatio: Float = 0.25f
     ) {
-        val stepSize = max(1.0f, radius * spacingRatio)
+        val stepSize = max(0.5f, radius * spacingRatio)
         val samples = curve.sampleUniform(stepSize)
         for (pt in samples) {
             smudgePoint(pt.x, pt.y, radius, blurStrength, opacity)

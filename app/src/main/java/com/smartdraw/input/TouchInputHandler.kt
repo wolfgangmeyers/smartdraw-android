@@ -43,7 +43,6 @@ class TouchInputHandler(
             return when (toolMode) {
                 SmartDrawView.ToolMode.PAINTBRUSH -> Pair(baseRadius * p, baseOpacity)
                 SmartDrawView.ToolMode.PEN -> Pair(baseRadius, baseOpacity)
-                SmartDrawView.ToolMode.PENCIL -> Pair(baseRadius, baseOpacity * p)
                 SmartDrawView.ToolMode.SMUDGE -> Pair(baseRadius * p, baseOpacity * p)
             }
         }

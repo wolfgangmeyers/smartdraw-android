@@ -60,9 +60,6 @@ class MainActivityUiTest {
         activity.onToolSelected(SmartDrawView.ToolMode.PEN)
         assertEquals(SmartDrawView.ToolMode.PEN, drawView.toolMode)
 
-        activity.onToolSelected(SmartDrawView.ToolMode.PENCIL)
-        assertEquals(SmartDrawView.ToolMode.PENCIL, drawView.toolMode)
-
         activity.onToolSelected(SmartDrawView.ToolMode.SMUDGE)
         assertEquals(SmartDrawView.ToolMode.SMUDGE, drawView.toolMode)
 
@@ -115,12 +112,12 @@ class MainActivityUiTest {
     @Test
     fun testToolSettingsBottomSheetLifecycle() {
         val sheet = ToolSettingsBottomSheet.newInstance(
-            toolMode = SmartDrawView.ToolMode.PENCIL,
+            toolMode = SmartDrawView.ToolMode.PEN,
             brushRadius = 24.0f,
             brushOpacity = 0.8f
         )
         assertNotNull(sheet)
-        assertEquals(SmartDrawView.ToolMode.PENCIL, sheet.currentTool)
+        assertEquals(SmartDrawView.ToolMode.PEN, sheet.currentTool)
         assertEquals(24.0f, sheet.currentBrushRadius, 0.001f)
         assertEquals(0.8f, sheet.currentBrushOpacity, 0.001f)
     }

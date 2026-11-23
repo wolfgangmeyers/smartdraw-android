@@ -11,6 +11,7 @@ import android.widget.SeekBar
 import android.widget.TextView
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.smartdraw.ui.BrushPreviewView
+import java.util.Locale
 import kotlin.math.roundToInt
 
 class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
@@ -30,15 +31,12 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
 
     private lateinit var cardToolBrush: LinearLayout
     private lateinit var cardToolPen: LinearLayout
-    private lateinit var cardToolPencil: LinearLayout
     private lateinit var cardToolSmudge: LinearLayout
 
     private lateinit var iconBrush: ImageView
     private lateinit var textBrush: TextView
     private lateinit var iconPen: ImageView
     private lateinit var textPen: TextView
-    private lateinit var iconPencil: ImageView
-    private lateinit var textPencil: TextView
     private lateinit var iconSmudge: ImageView
     private lateinit var textSmudge: TextView
 
@@ -51,8 +49,26 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
 
     companion object {
         const val TAG = "ToolSettingsBottomSheet"
-        const val MIN_BRUSH_RADIUS = 2.0f
+        const val MIN_BRUSH_RADIUS = 0.5f
         const val MAX_BRUSH_RADIUS = 100.0f
+        const val BRUSH_RADIUS_STEP = 0.5f
+        const val MAX_SLIDER_PROGRESS = 199 // 0..199 maps to 0.5..100.0 in 0.5px steps
+
+        fun formatRadiusText(radius: Float): String {
+            return if (radius % 1.0f == 0f) {
+                "${radius.toInt()} px"
+            } else {
+                "${String.format(Locale.US, "%.1f", radius)} px"
+            }
+        }
+
+        fun radiusToProgress(radius: Float): Int {
+            return ((radius / BRUSH_RADIUS_STEP).roundToInt() - 1).coerceIn(0, MAX_SLIDER_PROGRESS)
+        }
+
+        fun progressToRadius(progress: Int): Float {
+            return (progress + 1) * BRUSH_RADIUS_STEP
+        }
 
         fun newInstance(
             toolMode: SmartDrawView.ToolMode,
@@ -84,15 +100,12 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
 
         cardToolBrush = view.findViewById(R.id.cardToolBrush)
         cardToolPen = view.findViewById(R.id.cardToolPen)
-        cardToolPencil = view.findViewById(R.id.cardToolPencil)
         cardToolSmudge = view.findViewById(R.id.cardToolSmudge)
 
         iconBrush = view.findViewById(R.id.iconBrush)
         textBrush = view.findViewById(R.id.textBrush)
         iconPen = view.findViewById(R.id.iconPen)
         textPen = view.findViewById(R.id.textPen)
-        iconPencil = view.findViewById(R.id.iconPencil)
-        textPencil = view.findViewById(R.id.textPencil)
         iconSmudge = view.findViewById(R.id.iconSmudge)
         textSmudge = view.findViewById(R.id.textSmudge)
 
@@ -108,10 +121,11 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
         brushPreview.brushOpacity = currentBrushOpacity
         brushPreview.previewColor = if (useReferenceColors) Color.WHITE else currentBrushColor
 
-        // Setup size slider (progress 0..98 maps to 2..100)
-        val sizeProgress = (currentBrushRadius - MIN_BRUSH_RADIUS).roundToInt().coerceIn(0, 98)
+        // Setup size slider (progress 0..199 maps to 0.5..100.0 px)
+        sliderBrushSize.max = MAX_SLIDER_PROGRESS
+        val sizeProgress = radiusToProgress(currentBrushRadius)
         sliderBrushSize.progress = sizeProgress
-        textSizeValue.text = "${currentBrushRadius.roundToInt()} px"
+        textSizeValue.text = formatRadiusText(currentBrushRadius)
 
         // Setup opacity slider (progress 0..99 maps to 1..100%)
         val opacityPercent = (currentBrushOpacity * 100f).roundToInt().coerceIn(1, 100)
@@ -136,14 +150,6 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
             }
         }
 
-        cardToolPencil.setOnClickListener {
-            if (currentTool != SmartDrawView.ToolMode.PENCIL) {
-                currentTool = SmartDrawView.ToolMode.PENCIL
-                updateToolSelectionUI()
-                listener?.onToolSelected(currentTool)
-            }
-        }
-
         cardToolSmudge.setOnClickListener {
             if (currentTool != SmartDrawView.ToolMode.SMUDGE) {
                 currentTool = SmartDrawView.ToolMode.SMUDGE
@@ -154,9 +160,9 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
 
         sliderBrushSize.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                val radius = progress + MIN_BRUSH_RADIUS
+                val radius = progressToRadius(progress)
                 currentBrushRadius = radius
-                textSizeValue.text = "${radius.roundToInt()} px"
+                textSizeValue.text = formatRadiusText(radius)
                 brushPreview.brushRadius = radius
                 listener?.onBrushSizeChanged(radius)
             }
@@ -190,10 +196,6 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
         iconPen.setColorFilter(0xFFB0B0B0.toInt())
         textPen.setTextColor(0xFFB0B0B0.toInt())
 
-        cardToolPencil.setBackgroundResource(R.drawable.bg_tool_card_inactive)
-        iconPencil.setColorFilter(0xFFB0B0B0.toInt())
-        textPencil.setTextColor(0xFFB0B0B0.toInt())
-
         cardToolSmudge.setBackgroundResource(R.drawable.bg_tool_card_inactive)
         iconSmudge.setColorFilter(0xFFB0B0B0.toInt())
         textSmudge.setTextColor(0xFFB0B0B0.toInt())
@@ -210,12 +212,6 @@ class ToolSettingsBottomSheet : BottomSheetDialogFragment() {
                 iconPen.setColorFilter(0xFF2979FF.toInt())
                 textPen.setTextColor(0xFFFFFFFF.toInt())
                 textSettingsSectionTitle.text = "PEN SETTINGS"
-            }
-            SmartDrawView.ToolMode.PENCIL -> {
-                cardToolPencil.setBackgroundResource(R.drawable.bg_tool_card_active)
-                iconPencil.setColorFilter(0xFF2979FF.toInt())
-                textPencil.setTextColor(0xFFFFFFFF.toInt())
-                textSettingsSectionTitle.text = "PENCIL SETTINGS"
             }
             SmartDrawView.ToolMode.SMUDGE -> {
                 cardToolSmudge.setBackgroundResource(R.drawable.bg_tool_card_active)

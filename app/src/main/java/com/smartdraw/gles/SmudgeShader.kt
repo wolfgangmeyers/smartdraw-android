@@ -14,15 +14,16 @@ class SmudgeShader {
         uniform vec2 u_brushCenter;
         uniform float u_brushRadius;
 
-        out vec2 v_quadPos;
+        out vec2 v_pixelOffset;
         out vec2 v_canvasTexCoord;
 
         void main() {
-            vec2 worldPos = u_brushCenter + (a_position * u_brushRadius);
+            float quadRadius = u_brushRadius + 1.5;
+            vec2 worldPos = u_brushCenter + (a_position * quadRadius);
             vec2 clipSpace = (worldPos / u_resolution) * 2.0 - 1.0;
             clipSpace.y = -clipSpace.y;
             gl_Position = vec4(clipSpace, 0.0, 1.0);
-            v_quadPos = a_position;
+            v_pixelOffset = a_position * quadRadius;
             // Texture V is inverted relative to canvas Y (OpenGL texture origin is bottom-left)
             v_canvasTexCoord = vec2(worldPos.x / u_resolution.x, 1.0 - (worldPos.y / u_resolution.y));
         }
@@ -31,7 +32,7 @@ class SmudgeShader {
     private val fragmentShaderSource = """#version 300 es
         precision highp float;
 
-        in vec2 v_quadPos;
+        in vec2 v_pixelOffset;
         in vec2 v_canvasTexCoord;
 
         uniform sampler2D u_sourceTexture;
@@ -55,8 +56,9 @@ class SmudgeShader {
         );
 
         void main() {
-            float r_px = length(v_quadPos) * u_brushRadius;
-            float alpha = 1.0 - smoothstep(u_brushRadius - 1.0, u_brushRadius + 1.0, r_px);
+            float r_px = length(v_pixelOffset);
+            float feather = min(1.0, max(0.35, u_brushRadius * 0.5));
+            float alpha = 1.0 - smoothstep(max(0.0, u_brushRadius - feather), u_brushRadius + feather, r_px);
             if (alpha <= 0.001) {
                 discard;
             }

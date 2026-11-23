@@ -25,7 +25,6 @@ class SmartDrawView @JvmOverloads constructor(
     enum class ToolMode {
         PAINTBRUSH,
         PEN,
-        PENCIL,
         SMUDGE
     }
 
@@ -61,9 +60,10 @@ class SmartDrawView @JvmOverloads constructor(
     var brushRadius: Float = 20.0f
         get() = if (::touchHandler.isInitialized) touchHandler.baseRadius else field
         set(value) {
-            field = value
+            val clamped = value.coerceIn(0.5f, 100.0f)
+            field = clamped
             if (::touchHandler.isInitialized) {
-                touchHandler.baseRadius = value
+                touchHandler.baseRadius = clamped
             }
         }
     var brushOpacity: Float = 1.0f
@@ -206,8 +206,7 @@ class SmartDrawView @JvmOverloads constructor(
                     val r = rendererInstance ?: return@queueEvent
                     when (toolMode) {
                         ToolMode.PAINTBRUSH,
-                        ToolMode.PEN,
-                        ToolMode.PENCIL -> {
+                        ToolMode.PEN -> {
                             val segRadius = brushRadius
                             val segOpacity = brushOpacity
                             r.drawActiveStrokeSegment(
@@ -431,10 +430,14 @@ class SmartDrawView @JvmOverloads constructor(
     }
 
     fun setBrushSize(radius: Float) {
-        touchHandler.baseRadius = radius
+        val clamped = radius.coerceIn(0.5f, 100.0f)
+        brushRadius = clamped
+        if (::touchHandler.isInitialized) {
+            touchHandler.baseRadius = clamped
+        }
     }
 
-    fun getBrushSize(): Float = touchHandler.baseRadius
+    fun getBrushSize(): Float = if (::touchHandler.isInitialized) touchHandler.baseRadius else brushRadius
 
     fun setBrushOpacityValue(opacity: Float) {
         touchHandler.baseOpacity = opacity

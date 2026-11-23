@@ -557,7 +557,7 @@ filesDir/
        "isReferenceVisible": true,
        "useReferenceColors": true,
        "isRatchetEnabled": false,
-       "activeTool": "PENCIL",
+       "activeTool": "PAINTBRUSH",
        "brushSize": 24.0,
        "brushOpacity": 0.85,
        "manualBrushColor": -16777216
@@ -572,7 +572,7 @@ filesDir/
      - `isReferenceVisible` (`Boolean`): Visibility toggle state for the reference layer.
      - `useReferenceColors` (`Boolean`): AutoColor auto-picker active state.
      - `isRatchetEnabled` (`Boolean`): Ratchet mode distance-monotonic painting guard state.
-     - `activeTool` (`String`): Identifier for the active tool (`PAINTBRUSH`, `PEN`, `PENCIL`, `SMUDGE`). Legacy "PENCIL" serializations gracefully map to `PENCIL` or `PAINTBRUSH`.
+     - `activeTool` (`String`): Identifier for the active tool (`PAINTBRUSH`, `PEN`, `SMUDGE`). Legacy "PENCIL" serializations gracefully map to `PAINTBRUSH`.
      - `brushSize` (`Float`): Canvas-space radius / diameter for brush stamping.
      - `brushOpacity` (`Float`): Stroke opacity factor $\in [0.0, 1.0]$.
      - `manualBrushColor` (`Int`): ARGB 32-bit integer color value for manual brush strokes when Auto Color is disabled; defaults to `#FF000000` (opaque black). Backwards compatible with existing project JSONs missing this field.
@@ -613,7 +613,7 @@ SmartDraw employs an event-driven, debounced auto-save architecture designed to 
 
 A high-resolution countdown timer (interval $\Delta t_{\text{idle}} = 5000\text{ ms}$) is scheduled on the main thread / coroutine dispatcher. The countdown resets to $5.0\text{ seconds}$ on any of the following user actions:
 - **Stylus Stroke Completion**: Fired on `MotionEvent.ACTION_UP` or `ACTION_CANCEL` after committing Bezier stamps to `baseFbo`. Intermediary `ACTION_MOVE` events do not trigger disk I/O.
-- **Tool Mode Modification**: Switching between Pencil, Smudge, and Eraser.
+- **Tool Mode Modification**: Switching between Paintbrush, Pen, and Smudge.
 - **Brush Parameter Adjustment**: Adjusting brush size or brush opacity sliders.
 - **Reference Layer State Changes**: Adjusting reference opacity, toggling visibility, or enabling/disabling AutoColor.
 - **Source Image Import / Mutation**: Importing a new reference image or altering canvas dimensions.
@@ -702,7 +702,7 @@ When SmartDraw Android launches (cold start, process recreation after death, or 
    - If absent:
      - Disables reference rendering and AutoColor mode.
 5. **Tool & Brush Parameter Restoration**:
-   - Restores `activeTool` (`PAINTBRUSH`, `PEN`, `PENCIL`, `SMUDGE`), updating the top toolbar icon and bottom sheet selection cards.
+   - Restores `activeTool` (`PAINTBRUSH`, `PEN`, `SMUDGE`), updating the top toolbar icon and bottom sheet selection cards. Legacy "PENCIL" entries fallback safely to `PAINTBRUSH`.
    - Restores `brushSize` and `brushOpacity` sliders and preview indicators.
 6. **Viewport Camera Normalization**:
    - To ensure consistent orientation upon document entry, the camera resets to canonical aspect-fit:
@@ -762,7 +762,7 @@ When the user taps "+ New Painting" (or selects "New Canvas" from overflow optio
    - If created via Source Image Import (§10): dynamically adopts aspect ratio and scaled dimensions $(W_{\text{canvas}}, H_{\text{canvas}})$.
 4. **Canvas Reset & Baseline Persistence**:
    - Clears `baseFbo` and `scratchFbo` to opaque white (`[1.0, 1.0, 1.0, 1.0]`).
-   - Writes initial `metadata.json` with default pencil settings, timestamp, and dimensions.
+   - Writes initial `metadata.json` with default paintbrush settings, timestamp, and dimensions.
    - Generates initial blank `painting.png` and `thumbnail.png`.
    - Sets `active_project.json` pointing to `<newId>`.
 5. **Editor Transition**:
@@ -946,7 +946,7 @@ The top app bar (height $56\text{ dp}$, background `#1E1E1E`, elevation $4\text{
 ```
 
 1. **`btnActiveTool` (Active Tool Icon & Quick Settings Trigger)**:
-   - Displays icon reflecting current tool mode: `ic_brush` for Paintbrush, `ic_pen` for Pen, `ic_pencil` for Pencil, or `ic_smudge` for Smudge.
+   - Displays icon reflecting current tool mode: `ic_brush` for Paintbrush, `ic_pen` for Pen, or `ic_smudge` for Smudge.
    - Styled with `@drawable/bg_tool_button_active` (`#2A2A2A` surface with active outline).
    - Single tap opens the **Tool Settings Bottom Sheet** (`ToolSettingsBottomSheet`).
 2. **`btnColorSettings` (Dedicated Color Settings Button)**:
@@ -988,10 +988,7 @@ Activated by tapping the active tool icon (`btnActiveTool`) in the toolbar, this
      2. **Pen (`cardToolPen`)**:
         - Dynamics: Zero pressure sensitivity. Radius is fixed to $R_{\text{base}}$ and opacity is fixed to $\alpha_{\text{base}}$, producing uniform, clean inking lines.
         - Icon: `ic_pen.xml`.
-     3. **Pencil (`cardToolPencil`)**:
-        - Dynamics: Stylus pressure modulates opacity ($\alpha_{\text{effective}} = \alpha_{\text{base}} \cdot P$, light touch = faint graphite, firm press = dark/dense). Radius is fixed to $R_{\text{base}}$.
-        - Icon: `ic_pencil.xml`.
-     4. **Smudge (`cardToolSmudge`)**:
+     3. **Smudge (`cardToolSmudge`)**:
         - Retains existing smudge convolution behavior across the canvas.
         - Icon: `ic_smudge.xml`.
    - Active card is highlighted with `@drawable/bg_tool_card_active` (`#1A3A60` background with `#2979FF` accent border).
@@ -1106,7 +1103,7 @@ Provides visual, responsive document management:
 ### 13.7 Dedicated Status Banner & Progress Indicator
 
 Positioned immediately beneath the top toolbar (background `#181818`, height $32\text{ dp}$):
-- Displays real-time operational feedback: e.g., "Ready - Draw with stylus, pan/zoom with two fingers", "Tool: Pencil (size: 24 px)", "Brush color: #2979FF", "Auto color sampling enabled", "View reset to 1:1 centered".
+- Displays real-time operational feedback: e.g., "Ready - Draw with stylus, pan/zoom with two fingers", "Tool: Paintbrush (size: 24 px)", "Brush color: #2979FF", "Auto color sampling enabled", "View reset to 1:1 centered".
 - Integrated circular `ProgressBar` indicating background disk auto-save, image decoding, or test harness execution.
 
 ---
@@ -1116,7 +1113,7 @@ Positioned immediately beneath the top toolbar (background `#181818`, height $32
 | UI Component | User Action | Event / Execution Target | State Transition |
 | :--- | :--- | :--- | :--- |
 | **`btnActiveTool`** | Click | `showToolSettingsModal()` | Opens `ToolSettingsBottomSheet` |
-| **Tool Card (Brush/Pen/Pencil/Smudge)** | Click | `onToolSelected(toolMode)` | Updates active tool, top toolbar icon, marks dirty |
+| **Tool Card (Brush/Pen/Smudge)** | Click | `onToolSelected(toolMode)` | Updates active tool, top toolbar icon, marks dirty |
 | **Brush Size Slider** | Drag | `onBrushSizeChanged(radius)` | Updates `baseRadius`, brush preview ring, marks dirty |
 | **Brush Opacity Slider** | Drag | `onBrushOpacityChanged(opacity)` | Updates `baseOpacity`, brush preview ring, marks dirty |
 | **`btnColorSettings`** | Click | `showColorSettingsModal()` | Opens `ColorSettingsBottomSheet` |
