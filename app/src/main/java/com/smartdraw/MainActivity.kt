@@ -1,5 +1,6 @@
 package com.smartdraw
 
+import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
@@ -20,6 +21,8 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.graphics.ColorUtils
+import androidx.core.widget.ImageViewCompat
 import androidx.lifecycle.lifecycleScope
 import com.smartdraw.core.ColorSelectionUtil
 import com.smartdraw.gallery.GalleryDialogFragment
@@ -34,6 +37,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.Locale
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -104,9 +108,19 @@ class MainActivity : AppCompatActivity(),
                     p.isReferenceVisible = isSourceVisible
                     p.useReferenceColors = drawView.useReferenceColors
                     p.isRatchetEnabled = drawView.isRatchetEnabled
-                    p.activeTool = if (drawView.toolMode == SmartDrawView.ToolMode.PENCIL) "PENCIL" else "SMUDGE"
+                    p.activeTool = when (drawView.toolMode) {
+                        SmartDrawView.ToolMode.PAINTBRUSH -> "PAINTBRUSH"
+                        SmartDrawView.ToolMode.PEN -> "PEN"
+                        SmartDrawView.ToolMode.SMUDGE -> "SMUDGE"
+                    }
                     p.brushSize = drawView.getBrushSize()
                     p.brushOpacity = drawView.brushOpacity
+                    p.brushSizeBrush = drawView.getToolRadius(SmartDrawView.ToolMode.PAINTBRUSH)
+                    p.brushSizePen = drawView.getToolRadius(SmartDrawView.ToolMode.PEN)
+                    p.brushSizeSmudge = drawView.getToolRadius(SmartDrawView.ToolMode.SMUDGE)
+                    p.brushOpacityBrush = drawView.getToolOpacity(SmartDrawView.ToolMode.PAINTBRUSH)
+                    p.brushOpacityPen = drawView.getToolOpacity(SmartDrawView.ToolMode.PEN)
+                    p.brushOpacitySmudge = drawView.getToolOpacity(SmartDrawView.ToolMode.SMUDGE)
                     p.manualBrushColor = drawView.brushColor
                     p.layers = drawView.getLayers()
                     p.activeLayerId = drawView.getActiveLayerId()
@@ -199,6 +213,12 @@ class MainActivity : AppCompatActivity(),
             showMoreOptionsModal()
         }
 
+        updateActiveToolUI()
+        updateColorUI()
+        updateEyedropperUI()
+
+        updateActiveToolUI()
+
         // Session Restoration / Cold Start
         restoreOrInitializeSession()
 
@@ -267,9 +287,19 @@ class MainActivity : AppCompatActivity(),
                     drawView.brushColor = project.manualBrushColor
                     drawView.useReferenceColors = project.useReferenceColors
                     drawView.setRatchetEnabled(project.isRatchetEnabled)
-                    drawView.toolMode = if (project.activeTool == "SMUDGE") SmartDrawView.ToolMode.SMUDGE else SmartDrawView.ToolMode.PENCIL
-                    drawView.setBrushSize(project.brushSize)
-                    drawView.brushOpacity = project.brushOpacity
+
+                    drawView.setToolRadius(SmartDrawView.ToolMode.PAINTBRUSH, project.brushSizeBrush)
+                    drawView.setToolRadius(SmartDrawView.ToolMode.PEN, project.brushSizePen)
+                    drawView.setToolRadius(SmartDrawView.ToolMode.SMUDGE, project.brushSizeSmudge)
+                    drawView.setToolOpacity(SmartDrawView.ToolMode.PAINTBRUSH, project.brushOpacityBrush)
+                    drawView.setToolOpacity(SmartDrawView.ToolMode.PEN, project.brushOpacityPen)
+                    drawView.setToolOpacity(SmartDrawView.ToolMode.SMUDGE, project.brushOpacitySmudge)
+
+                    drawView.toolMode = when (project.activeTool) {
+                        "SMUDGE" -> SmartDrawView.ToolMode.SMUDGE
+                        "PEN" -> SmartDrawView.ToolMode.PEN
+                        else -> SmartDrawView.ToolMode.PAINTBRUSH
+                    }
 
                     updateActiveToolUI()
                     updateColorUI()
@@ -401,28 +431,60 @@ class MainActivity : AppCompatActivity(),
 
     // --- ToolSettingsBottomSheet.Listener Implementation ---
 
+    private fun formatToolStatus(toolMode: SmartDrawView.ToolMode, size: Float): String {
+        val name = when (toolMode) {
+            SmartDrawView.ToolMode.PAINTBRUSH -> "Paintbrush"
+            SmartDrawView.ToolMode.PEN -> "Pen"
+            SmartDrawView.ToolMode.SMUDGE -> "Smudge"
+        }
+        val sizeFormatted = if (size % 1.0f == 0f) "${size.toInt()} px" else "${String.format(Locale.US, "%.1f", size)} px"
+        return "Tool: $name (size: $sizeFormatted)"
+    }
+
     override fun onToolSelected(toolMode: SmartDrawView.ToolMode) {
         drawView.toolMode = toolMode
-        currentProject?.activeTool = if (toolMode == SmartDrawView.ToolMode.PENCIL) "PENCIL" else "SMUDGE"
+        currentProject?.activeTool = when (toolMode) {
+            SmartDrawView.ToolMode.PAINTBRUSH -> "PAINTBRUSH"
+            SmartDrawView.ToolMode.PEN -> "PEN"
+            SmartDrawView.ToolMode.SMUDGE -> "SMUDGE"
+        }
+        currentProject?.brushSize = drawView.getBrushSize()
+        currentProject?.brushOpacity = drawView.brushOpacity
         autoSaveManager.markDirty()
         updateActiveToolUI()
-        val name = if (toolMode == SmartDrawView.ToolMode.PENCIL) "Pencil" else "Smudge"
-        statusText.text = "Tool: $name (size: ${drawView.getBrushSize().roundToInt()} px)"
+        statusText.text = formatToolStatus(toolMode, drawView.getBrushSize())
     }
 
     override fun onBrushSizeChanged(radius: Float) {
         drawView.setBrushSize(radius)
+        when (drawView.toolMode) {
+            SmartDrawView.ToolMode.PAINTBRUSH -> currentProject?.brushSizeBrush = radius
+            SmartDrawView.ToolMode.PEN -> currentProject?.brushSizePen = radius
+            SmartDrawView.ToolMode.SMUDGE -> currentProject?.brushSizeSmudge = radius
+        }
         currentProject?.brushSize = radius
         autoSaveManager.markDirty()
-        val name = if (drawView.toolMode == SmartDrawView.ToolMode.PENCIL) "Pencil" else "Smudge"
-        statusText.text = "Tool: $name (size: ${radius.roundToInt()} px)"
+        statusText.text = formatToolStatus(drawView.toolMode, radius)
     }
 
     override fun onBrushOpacityChanged(opacity: Float) {
         drawView.brushOpacity = opacity
+        when (drawView.toolMode) {
+            SmartDrawView.ToolMode.PAINTBRUSH -> currentProject?.brushOpacityBrush = opacity
+            SmartDrawView.ToolMode.PEN -> currentProject?.brushOpacityPen = opacity
+            SmartDrawView.ToolMode.SMUDGE -> currentProject?.brushOpacitySmudge = opacity
+        }
         currentProject?.brushOpacity = opacity
         autoSaveManager.markDirty()
         statusText.text = "Brush opacity: ${(opacity * 100f).roundToInt()}%"
+    }
+
+    override fun getToolRadius(toolMode: SmartDrawView.ToolMode): Float {
+        return drawView.getToolRadius(toolMode)
+    }
+
+    override fun getToolOpacity(toolMode: SmartDrawView.ToolMode): Float {
+        return drawView.getToolOpacity(toolMode)
     }
 
     // --- ColorSettingsBottomSheet.Listener Implementation ---
@@ -510,33 +572,52 @@ class MainActivity : AppCompatActivity(),
     // --- UI State Helpers ---
 
     private fun updateActiveToolUI() {
-        if (drawView.toolMode == SmartDrawView.ToolMode.PENCIL) {
-            btnActiveTool.setImageResource(R.drawable.ic_pencil)
-            btnActiveTool.contentDescription = "Active Tool: Pencil (Tap for settings)"
-        } else {
-            btnActiveTool.setImageResource(R.drawable.ic_smudge)
-            btnActiveTool.contentDescription = "Active Tool: Smudge (Tap for settings)"
+        when (drawView.toolMode) {
+            SmartDrawView.ToolMode.PAINTBRUSH -> {
+                btnActiveTool.setImageResource(R.drawable.ic_brush)
+                btnActiveTool.contentDescription = "Active Tool: Paintbrush (Tap for settings)"
+            }
+            SmartDrawView.ToolMode.PEN -> {
+                btnActiveTool.setImageResource(R.drawable.ic_pen)
+                btnActiveTool.contentDescription = "Active Tool: Pen (Tap for settings)"
+            }
+            SmartDrawView.ToolMode.SMUDGE -> {
+                btnActiveTool.setImageResource(R.drawable.ic_smudge)
+                btnActiveTool.contentDescription = "Active Tool: Smudge (Tap for settings)"
+            }
         }
     }
 
     private fun updateColorUI() {
         if (drawView.useReferenceColors) {
             btnColorSettings.setImageResource(R.drawable.ic_auto_color)
-            btnColorSettings.setColorFilter(Color.WHITE)
+            ImageViewCompat.setImageTintList(btnColorSettings, ColorStateList.valueOf(Color.WHITE))
+            btnColorSettings.imageTintList = ColorStateList.valueOf(Color.WHITE)
+            btnColorSettings.colorFilter = null
+            btnColorSettings.clearColorFilter()
             btnColorSettings.setBackgroundResource(R.drawable.bg_tool_button_active)
             btnColorSettings.contentDescription = "Color: Auto Color Sampling (Tap for color settings)"
         } else {
             val density = resources.displayMetrics.density
             val sizePx = (24 * density).roundToInt()
-            val strokePx = (2 * density).roundToInt()
+            val strokePx = (1.5f * density).roundToInt().coerceAtLeast(1)
+            val luminance = ColorUtils.calculateLuminance(drawView.brushColor)
+            val strokeColor = if (luminance < 0.25) {
+                Color.parseColor("#CCCCCC")
+            } else {
+                Color.parseColor("#333333")
+            }
             val swatch = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(drawView.brushColor)
-                setStroke(strokePx, Color.WHITE)
+                setStroke(strokePx, strokeColor)
                 setSize(sizePx, sizePx)
             }
-            btnColorSettings.setImageDrawable(swatch)
+            ImageViewCompat.setImageTintList(btnColorSettings, null)
+            btnColorSettings.imageTintList = null
             btnColorSettings.colorFilter = null
+            btnColorSettings.clearColorFilter()
+            btnColorSettings.setImageDrawable(swatch)
             btnColorSettings.setBackgroundResource(R.drawable.btn_icon_selector)
             val hex = ColorSelectionUtil.colorToHex(drawView.brushColor)
             btnColorSettings.contentDescription = "Color: $hex (Tap for color settings)"

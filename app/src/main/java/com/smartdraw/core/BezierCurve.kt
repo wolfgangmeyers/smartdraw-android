@@ -66,7 +66,7 @@ sealed class BezierCurve {
 
     fun sampleUniform(stepDistance: Float): List<Point2D> {
         val length = totalLength
-        val step = max(0.5f, stepDistance)
+        val step = max(0.25f, stepDistance)
         if (length <= 0.001f) {
             return listOf(start)
         }

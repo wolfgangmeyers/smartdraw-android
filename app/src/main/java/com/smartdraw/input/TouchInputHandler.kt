@@ -1,6 +1,7 @@
 package com.smartdraw.input
 
 import android.view.MotionEvent
+import com.smartdraw.SmartDrawView
 import com.smartdraw.core.BezierCurve
 import com.smartdraw.core.Point2D
 import com.smartdraw.core.StrokeSmoother
@@ -23,6 +24,7 @@ class TouchInputHandler(
     var baseOpacity: Float = 1.0f,
     var pressureGamma: Float = 1.0f,
     var minPressureFactor: Float = 0.1f,
+    var toolMode: SmartDrawView.ToolMode = SmartDrawView.ToolMode.PAINTBRUSH,
     var screenToCanvasTransformer: ((Float, Float) -> Pair<Float, Float>)? = null,
     var transformPoint: ((Float, Float) -> Pair<Float, Float>)? = null,
     private val onStrokeStart: ((Point2D) -> Unit)? = null,
@@ -30,6 +32,22 @@ class TouchInputHandler(
     private val onStrokeEnd: (() -> Unit)? = null,
     private val onStrokeCancel: (() -> Unit)? = null
 ) {
+    companion object {
+        fun computeEffectiveRadiusAndOpacity(
+            toolMode: SmartDrawView.ToolMode,
+            baseRadius: Float,
+            baseOpacity: Float,
+            pressure: Float
+        ): Pair<Float, Float> {
+            val p = pressure.coerceIn(0.05f, 1.0f)
+            return when (toolMode) {
+                SmartDrawView.ToolMode.PAINTBRUSH -> Pair(baseRadius * p, baseOpacity)
+                SmartDrawView.ToolMode.PEN -> Pair(baseRadius, baseOpacity)
+                SmartDrawView.ToolMode.SMUDGE -> Pair(baseRadius * p, baseOpacity * p)
+            }
+        }
+    }
+
     // Pointer ID of the active drawing stylus, or null if no stylus is currently down
     var activeStylusPointerId: Int? = null
         private set
@@ -38,10 +56,14 @@ class TouchInputHandler(
         get() = activeStylusPointerId != null
 
     private val smoother = StrokeSmoother { curve ->
-        // Evaluate dynamic radius and opacity from curve endpoints
+        // Evaluate dynamic radius and opacity from curve endpoints according to active tool mode dynamics
         val avgPressure = ((curve.start.pressure + curve.end.pressure) * 0.5f).coerceIn(0.05f, 1.0f)
-        val dynamicRadius = baseRadius * avgPressure
-        val dynamicOpacity = baseOpacity * avgPressure
+        val (dynamicRadius, dynamicOpacity) = computeEffectiveRadiusAndOpacity(
+            toolMode = toolMode,
+            baseRadius = baseRadius,
+            baseOpacity = baseOpacity,
+            pressure = avgPressure
+        )
         onStrokeSegment(curve, dynamicRadius, dynamicOpacity)
     }
 

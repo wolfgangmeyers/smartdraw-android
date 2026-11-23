@@ -49,16 +49,19 @@ class MainActivityUiTest {
         assertNotNull(btnMoreOptions)
         assertNotNull(drawView)
 
-        // Default tool is Pencil
-        assertEquals(SmartDrawView.ToolMode.PENCIL, drawView.toolMode)
+        // Default tool is Paintbrush
+        assertEquals(SmartDrawView.ToolMode.PAINTBRUSH, drawView.toolMode)
         assertTrue(drawView.useReferenceColors)
 
         // Tool settings callbacks
+        activity.onToolSelected(SmartDrawView.ToolMode.PAINTBRUSH)
+        assertEquals(SmartDrawView.ToolMode.PAINTBRUSH, drawView.toolMode)
+
+        activity.onToolSelected(SmartDrawView.ToolMode.PEN)
+        assertEquals(SmartDrawView.ToolMode.PEN, drawView.toolMode)
+
         activity.onToolSelected(SmartDrawView.ToolMode.SMUDGE)
         assertEquals(SmartDrawView.ToolMode.SMUDGE, drawView.toolMode)
-
-        activity.onToolSelected(SmartDrawView.ToolMode.PENCIL)
-        assertEquals(SmartDrawView.ToolMode.PENCIL, drawView.toolMode)
 
         // Brush size and opacity changes
         activity.onBrushSizeChanged(32.0f)
@@ -109,12 +112,12 @@ class MainActivityUiTest {
     @Test
     fun testToolSettingsBottomSheetLifecycle() {
         val sheet = ToolSettingsBottomSheet.newInstance(
-            toolMode = SmartDrawView.ToolMode.PENCIL,
+            toolMode = SmartDrawView.ToolMode.PEN,
             brushRadius = 24.0f,
             brushOpacity = 0.8f
         )
         assertNotNull(sheet)
-        assertEquals(SmartDrawView.ToolMode.PENCIL, sheet.currentTool)
+        assertEquals(SmartDrawView.ToolMode.PEN, sheet.currentTool)
         assertEquals(24.0f, sheet.currentBrushRadius, 0.001f)
         assertEquals(0.8f, sheet.currentBrushOpacity, 0.001f)
     }

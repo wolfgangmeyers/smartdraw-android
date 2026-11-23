@@ -35,10 +35,10 @@ class CompositingShader {
         out vec4 fragColor;
 
         vec4 blend(vec4 base, vec4 overlay, float opacity) {
-            overlay.a *= opacity;
+            vec4 pmOverlay = vec4(overlay.rgb * opacity, overlay.a * opacity);
             return vec4(
-                mix(base.rgb, overlay.rgb, overlay.a),
-                max(base.a, overlay.a)
+                pmOverlay.rgb + base.rgb * (1.0 - pmOverlay.a),
+                pmOverlay.a + base.a * (1.0 - pmOverlay.a)
             );
         }
 
@@ -76,7 +76,7 @@ class CompositingShader {
                 fragColor = u_solidColor;
             } else {
                 vec4 texColor = texture(u_texture, v_texCoord);
-                fragColor = vec4(texColor.rgb, texColor.a * u_opacity);
+                fragColor = vec4(texColor.rgb * u_opacity, texColor.a * u_opacity);
             }
         }
     """.trimIndent()
@@ -185,7 +185,7 @@ class CompositingShader {
 
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFuncSeparate(
-            GLES30.GL_SRC_ALPHA,
+            GLES30.GL_ONE,
             GLES30.GL_ONE_MINUS_SRC_ALPHA,
             GLES30.GL_ONE,
             GLES30.GL_ONE_MINUS_SRC_ALPHA

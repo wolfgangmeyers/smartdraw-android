@@ -8,6 +8,7 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -111,11 +112,16 @@ class LayerManagerBottomSheet : BottomSheetDialogFragment() {
         }
 
         btnDeleteLayer.setOnClickListener {
-            val activeId = drawView?.getActiveLayerId()
-            if (activeId != null) {
-                drawView.deleteLayer(activeId)
-                refreshLayersUI()
-            }
+            val activeId = drawView?.getActiveLayerId() ?: return@setOnClickListener
+            AlertDialog.Builder(requireContext())
+                .setTitle("Delete Layer")
+                .setMessage("Are you sure you want to delete this layer? This action cannot be undone.")
+                .setPositiveButton("Delete") { _, _ ->
+                    drawView.deleteLayer(activeId)
+                    refreshLayersUI()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
         }
 
         refreshLayersUI()

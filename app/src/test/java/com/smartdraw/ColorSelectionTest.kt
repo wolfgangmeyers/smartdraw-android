@@ -103,7 +103,7 @@ class ColorSelectionTest {
     fun testToolSettingsBottomSheetCleanFocus() {
         val activity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
         val sheet = ToolSettingsBottomSheet.newInstance(
-            toolMode = SmartDrawView.ToolMode.PENCIL,
+            toolMode = SmartDrawView.ToolMode.PAINTBRUSH,
             brushRadius = 24.0f,
             brushOpacity = 0.8f,
             brushColor = Color.BLUE,
@@ -130,7 +130,8 @@ class ColorSelectionTest {
         activity.supportFragmentManager.executePendingTransactions()
 
         val view = sheet.requireView()
-        val cardPencil: LinearLayout = view.findViewById(R.id.cardToolPencil)
+        val cardBrush: LinearLayout = view.findViewById(R.id.cardToolBrush)
+        val cardPen: LinearLayout = view.findViewById(R.id.cardToolPen)
         val cardSmudge: LinearLayout = view.findViewById(R.id.cardToolSmudge)
 
         // Verify tool selection works
@@ -138,9 +139,13 @@ class ColorSelectionTest {
         assertEquals(SmartDrawView.ToolMode.SMUDGE, selectedTool)
         assertEquals(SmartDrawView.ToolMode.SMUDGE, sheet.currentTool)
 
-        cardPencil.performClick()
-        assertEquals(SmartDrawView.ToolMode.PENCIL, selectedTool)
-        assertEquals(SmartDrawView.ToolMode.PENCIL, sheet.currentTool)
+        cardPen.performClick()
+        assertEquals(SmartDrawView.ToolMode.PEN, selectedTool)
+        assertEquals(SmartDrawView.ToolMode.PEN, sheet.currentTool)
+
+        cardBrush.performClick()
+        assertEquals(SmartDrawView.ToolMode.PAINTBRUSH, selectedTool)
+        assertEquals(SmartDrawView.ToolMode.PAINTBRUSH, sheet.currentTool)
 
         // Verify color controls are NOT in ToolSettingsBottomSheet
         assertNull("Color section should not be in tool settings", view.findViewById<SeekBar?>(R.id.sliderRed))
@@ -281,5 +286,39 @@ class ColorSelectionTest {
         val colorSheet = activity.supportFragmentManager.findFragmentByTag(ColorSettingsBottomSheet.TAG)
         assertNotNull("ColorSettingsBottomSheet should be shown when tapping color button", colorSheet)
         assertTrue(colorSheet is ColorSettingsBottomSheet)
+    }
+
+    @Test
+    fun testBtnColorSettingsClearsTintAndDisplaysSelectedBrushColor() {
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        val activity = controller.get()
+        val btnColorSettings: ImageButton = activity.findViewById(R.id.btnColorSettings)
+
+        // Set to Auto Color mode
+        activity.onAutoColorToggled(true)
+        assertTrue(activity.drawView.useReferenceColors)
+        assertNotNull("Auto color must set imageTintList", btnColorSettings.imageTintList)
+
+        // Switch to Manual Color mode
+        val testColor = Color.rgb(255, 87, 34) // #FF5722
+        activity.onAutoColorToggled(false)
+        activity.onBrushColorChanged(testColor)
+
+        // In Manual Color mode: imageTintList and colorFilter MUST be cleared so the swatch renders correctly
+        assertNull("btnColorSettings imageTintList must be null in manual color mode", btnColorSettings.imageTintList)
+        assertNull("btnColorSettings colorFilter must be null in manual color mode", btnColorSettings.colorFilter)
+        assertTrue("btnColorSettings drawable must be GradientDrawable swatch", btnColorSettings.drawable is android.graphics.drawable.GradientDrawable)
+        assertEquals("Color: #FF5722 (Tap for color settings)", btnColorSettings.contentDescription)
+
+        // Toggle back to Auto Color mode
+        activity.onAutoColorToggled(true)
+        assertTrue(activity.drawView.useReferenceColors)
+        assertNotNull("Auto color must restore imageTintList", btnColorSettings.imageTintList)
+
+        // Toggle back to Manual Color mode again: must clear tint list once again
+        activity.onAutoColorToggled(false)
+        assertNull("btnColorSettings imageTintList must be cleared when returning to manual color mode", btnColorSettings.imageTintList)
+        assertNull("btnColorSettings colorFilter must be cleared when returning to manual color mode", btnColorSettings.colorFilter)
+        assertTrue("btnColorSettings drawable must be GradientDrawable swatch", btnColorSettings.drawable is android.graphics.drawable.GradientDrawable)
     }
 }

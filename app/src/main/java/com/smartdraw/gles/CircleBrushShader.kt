@@ -14,15 +14,16 @@ class CircleBrushShader {
         uniform vec2 u_brushCenter;
         uniform float u_brushRadius;
 
-        out vec2 v_quadPos;
+        out vec2 v_pixelOffset;
         out vec2 v_texCoord;
 
         void main() {
-            vec2 worldPos = u_brushCenter + (a_position * u_brushRadius);
+            float quadRadius = u_brushRadius + 1.5;
+            vec2 worldPos = u_brushCenter + (a_position * quadRadius);
             vec2 clipSpace = (worldPos / u_resolution) * 2.0 - 1.0;
             clipSpace.y = -clipSpace.y; // Top-left origin
             gl_Position = vec4(clipSpace, 0.0, 1.0);
-            v_quadPos = a_position;
+            v_pixelOffset = a_position * quadRadius;
             v_texCoord = a_texCoord;
         }
     """.trimIndent()
@@ -30,7 +31,7 @@ class CircleBrushShader {
     private val fragmentShaderSource = """#version 300 es
         precision highp float;
 
-        in vec2 v_quadPos;
+        in vec2 v_pixelOffset;
         in vec2 v_texCoord;
 
         uniform vec4 u_brushColor;
@@ -40,18 +41,16 @@ class CircleBrushShader {
         out vec4 fragColor;
 
         void main() {
-            float distInRadius = length(v_quadPos); // 0.0 at center, 1.0 at outer quad edge
-            float r_px = distInRadius * u_brushRadius;
+            float r_px = length(v_pixelOffset);
             float effectiveRadius = u_brushRadius * clamp(u_pressure, 0.08, 1.0);
+            float feather = min(1.0, max(0.35, effectiveRadius * 0.5));
             
             // Antialiased circle edge
-            float alpha = 1.0 - smoothstep(effectiveRadius - 1.0, effectiveRadius + 1.0, r_px);
+            float alpha = 1.0 - smoothstep(max(0.0, effectiveRadius - feather), effectiveRadius + feather, r_px);
             if (alpha <= 0.001) {
                 discard;
             }
-            // Pressure sensitivity scales both radius and opacity
-            float pressureOpacity = clamp(0.15 + 0.85 * u_pressure, 0.08, 1.0);
-            fragColor = vec4(u_brushColor.rgb, u_brushColor.a * alpha * pressureOpacity);
+            fragColor = vec4(u_brushColor.rgb, u_brushColor.a * alpha);
         }
     """.trimIndent()
 

@@ -59,13 +59,15 @@ class BrushPreviewView @JvmOverloads constructor(
         // Draw dotted/subtle boundary ring for the container max boundary
         canvas.drawCircle(cx, cy, maxRadius, strokePaint)
 
-        // Draw the preview dot scaled up to maxRadius
-        val drawRadius = minOf(brushRadius, maxRadius).coerceAtLeast(1.5f)
+        // Draw the preview dot scaled up to maxRadius, supporting sub-pixel radii down to 0.5px
+        val drawRadius = minOf(brushRadius, maxRadius).coerceAtLeast(0.5f)
         val alpha = (brushOpacity.coerceIn(0.01f, 1.0f) * 255).toInt()
         fillPaint.color = (0xFF shl 24) or (previewColor and 0x00FFFFFF)
         fillPaint.alpha = alpha
 
         canvas.drawCircle(cx, cy, drawRadius, fillPaint)
-        canvas.drawCircle(cx, cy, drawRadius, outlinePaint)
+        if (drawRadius >= 2.0f) {
+            canvas.drawCircle(cx, cy, drawRadius, outlinePaint)
+        }
     }
 }
