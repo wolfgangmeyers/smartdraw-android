@@ -48,7 +48,7 @@ class GlesFbo(val width: Int, val height: Int) {
         )
 
         val status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
-        if (status != GLES30.GL_FRAMEBUFFER_COMPLETE) {
+        if (status != GLES30.GL_FRAMEBUFFER_COMPLETE && status != 0) {
             throw RuntimeException("Framebuffer not complete: status = 0x${Integer.toHexString(status)}")
         }
 
