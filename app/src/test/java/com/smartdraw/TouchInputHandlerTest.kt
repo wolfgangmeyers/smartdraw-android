@@ -254,4 +254,61 @@ class TouchInputHandlerTest {
         assertEquals(30.0f, emittedRadius, 0.001f)
         assertEquals(1.0f, emittedOpacity, 0.001f)
     }
+
+    @Test
+    fun testZeroPressureLiftoffProducesMinimumSizeNotMaxSize() {
+        val emittedCurves = mutableListOf<BezierCurve>()
+        val emittedRadii = mutableListOf<Float>()
+
+        val baseRadius = 20.0f
+        val minPressureFactor = 0.1f
+        val handler = TouchInputHandler(
+            baseRadius = baseRadius,
+            minPressureFactor = minPressureFactor,
+            toolMode = SmartDrawView.ToolMode.PAINTBRUSH,
+            onStrokeSegment = { curve, radius, _ ->
+                emittedCurves.add(curve)
+                emittedRadii.add(radius)
+            }
+        )
+
+        // Verify normalizePressure directly: 0.0f raw pressure must evaluate to minPressureFactor, not jump to 0.5f or 1.0f
+        val zeroNorm = handler.normalizePressure(0.0f)
+        assertEquals("Normalized pressure for 0.0f raw must equal minPressureFactor", minPressureFactor, zeroNorm, 0.001f)
+
+        val fullNorm = handler.normalizePressure(1.0f)
+        assertEquals("Normalized pressure for 1.0f raw must equal 1.0f", 1.0f, fullNorm, 0.001f)
+
+        // Simulate a stroke starting firm, moving, tapering down to zero pressure, and lifting off at zero pressure
+        val down = createMotionEvent(MotionEvent.ACTION_DOWN, 10f, 10f, MotionEvent.TOOL_TYPE_STYLUS, pressure = 0.8f)
+        handler.handleTouchEvent(down)
+
+        val move1 = createMotionEvent(MotionEvent.ACTION_MOVE, 20f, 20f, MotionEvent.TOOL_TYPE_STYLUS, pressure = 0.4f)
+        handler.handleTouchEvent(move1)
+
+        val move2 = createMotionEvent(MotionEvent.ACTION_MOVE, 30f, 30f, MotionEvent.TOOL_TYPE_STYLUS, pressure = 0.05f)
+        handler.handleTouchEvent(move2)
+
+        // Zero pressure event right before liftoff (e.g. S-Pen tip feathering off the glass)
+        val moveZero = createMotionEvent(MotionEvent.ACTION_MOVE, 40f, 40f, MotionEvent.TOOL_TYPE_STYLUS, pressure = 0.0f)
+        handler.handleTouchEvent(moveZero)
+
+        // Liftoff at 0.0f pressure
+        val upZero = createMotionEvent(MotionEvent.ACTION_UP, 45f, 45f, MotionEvent.TOOL_TYPE_STYLUS, pressure = 0.0f)
+        handler.handleTouchEvent(upZero)
+
+        assertTrue("Segments should have been emitted", emittedCurves.isNotEmpty())
+
+        // The end point pressure of the stroke must taper to minimum pressure, never jumping up
+        val lastCurve = emittedCurves.last()
+        assertEquals("Last curve endpoint pressure must be minPressureFactor", minPressureFactor, lastCurve.end.pressure, 0.001f)
+
+        // The final segment radius must reflect minimum radius (baseRadius * minPressureFactor), not blot/jump
+        val expectedMinRadius = baseRadius * minPressureFactor
+        val lastRadius = emittedRadii.last()
+        assertTrue(
+            "Final segment radius ($lastRadius) should be close to min radius ($expectedMinRadius) and far less than baseRadius ($baseRadius)",
+            lastRadius <= expectedMinRadius * 1.5f
+        )
+    }
 }

@@ -220,9 +220,7 @@ class TouchInputHandler(
         return transformer(screenX, screenY)
     }
 
-    private fun normalizePressure(raw: Float): Float {
-        // Some devices report 0 for touch if pressure is uncalibrated or default 1.0
-        if (raw <= 0.001f) return 0.5f
+    fun normalizePressure(raw: Float): Float {
         val clamped = raw.coerceIn(0.0f, 1.0f)
         val shaped = clamped.pow(pressureGamma)
         return minPressureFactor + (1.0f - minPressureFactor) * shaped
