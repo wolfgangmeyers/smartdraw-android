@@ -29,6 +29,16 @@ import org.robolectric.shadows.ShadowLooper
 @Config(sdk = [34])
 class ToolSpecializationTest {
 
+    @org.junit.Before
+    fun setUp() {
+        MainActivity.defaultIoDispatcher = kotlinx.coroutines.Dispatchers.Main
+    }
+
+    @org.junit.After
+    fun tearDown() {
+        MainActivity.defaultIoDispatcher = kotlinx.coroutines.Dispatchers.IO
+    }
+
     @Test
     fun testToolModeEnumValues() {
         val modes = SmartDrawView.ToolMode.values()

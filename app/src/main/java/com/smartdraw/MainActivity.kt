@@ -130,6 +130,10 @@ class MainActivity : AppCompatActivity(),
                     return p
                 }
 
+                override fun requestSaveData(onDataReady: (compositeBitmap: Bitmap, layerBitmaps: Map<String, Bitmap>) -> Unit) {
+                    drawView.exportSaveBitmaps(onDataReady)
+                }
+
                 override fun requestBaseBitmap(onBitmapReady: (Bitmap) -> Unit) {
                     drawView.exportBaseBitmap(onBitmapReady)
                 }
@@ -265,16 +269,19 @@ class MainActivity : AppCompatActivity(),
                     currentProject = project
                     projectManager.setActiveProject(project.id)
 
-                    // Canvas Dimensions & Base Layer
+                    // Canvas Dimensions & Layers
                     drawView.setCanvasDimensions(project.canvasWidth, project.canvasHeight)
-                    if (project.layers.isNotEmpty()) {
-                        drawView.setLayers(project.layers, project.activeLayerId)
-                    }
-                    if (loaded.baseBitmap != null) {
-                        drawView.loadBaseBitmap(loaded.baseBitmap)
+                    val layersToLoad = if (project.layers.isNotEmpty()) {
+                        project.layers
                     } else {
-                        drawView.clearCanvas()
+                        listOf(com.smartdraw.project.LayerMetadata(id = java.util.UUID.randomUUID().toString(), name = "Layer 1"))
                     }
+                    drawView.setLayersWithBitmaps(
+                        layers = layersToLoad,
+                        activeId = project.activeLayerId,
+                        layerBitmaps = loaded.layerBitmaps,
+                        fallbackBaseBitmap = loaded.baseBitmap
+                    )
 
                     // Reference Image
                     val oldRefBitmap = currentReferenceBitmap
@@ -353,6 +360,7 @@ class MainActivity : AppCompatActivity(),
             .setView(input)
             .setPositiveButton("Create") { _, _ ->
                 val title = input.text.toString().trim().takeIf { it.isNotEmpty() } ?: "Untitled Painting"
+                autoSaveManager.flushSaveSync()
                 lifecycleScope.launch(ioDispatcher) {
                     val newProject = projectManager.createNewProject(1024, 1024, title)
                     withContext(Dispatchers.Main) {

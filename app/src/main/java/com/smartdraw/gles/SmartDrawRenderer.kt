@@ -1022,7 +1022,8 @@ class SmartDrawRenderer(
         translationX: Float = 0f,
         translationY: Float = 0f,
         scale: Float = 1.0f,
-        rotationDegrees: Float = 0f
+        rotationDegrees: Float = 0f,
+        includeReference: Boolean = true
     ) {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, targetFramebuffer)
         GLES30.glViewport(0, 0, viewportW, viewportH)
@@ -1068,7 +1069,7 @@ class SmartDrawRenderer(
         }
 
         // 3. Render reference layer overlay if enabled
-        if (referenceLayer.isVisible && referenceLayer.textureId != 0 && referenceLayer.opacity > 0.001f) {
+        if (includeReference && referenceLayer.isVisible && referenceLayer.textureId != 0 && referenceLayer.opacity > 0.001f) {
             compositingShader.renderLayerQuad(
                 textureId = referenceLayer.textureId,
                 opacity = referenceLayer.opacity,
@@ -1094,11 +1095,49 @@ class SmartDrawRenderer(
             translationX = translationX,
             translationY = translationY,
             scale = scale,
-            rotationDegrees = rotationDegrees
+            rotationDegrees = rotationDegrees,
+            includeReference = true
         )
     }
 
     fun exportBaseBitmap(): Bitmap = baseFbo.readBitmap()
+
+    fun exportLayerBitmap(id: String): Bitmap? {
+        val layer = layers.find { it.id == id } ?: return null
+        return layer.fbo.readBitmap()
+    }
+
+    fun exportAllLayerBitmaps(): Map<String, Bitmap> {
+        val map = LinkedHashMap<String, Bitmap>()
+        for (layer in layers) {
+            map[layer.id] = layer.fbo.readBitmap()
+        }
+        return map
+    }
+
+    fun loadLayerBitmap(id: String, bitmap: Bitmap) {
+        val layer = layers.find { it.id == id } ?: return
+        layer.fbo.loadBitmap(bitmap)
+        clearHistory()
+    }
+
+    fun loadLayersWithBitmaps(
+        layerBitmaps: Map<String, Bitmap>,
+        fallbackBaseBitmap: Bitmap? = null
+    ) {
+        val hasLayerBitmaps = layerBitmaps.isNotEmpty()
+        for ((index, layer) in layers.withIndex()) {
+            val bmp = layerBitmaps[layer.id]
+            if (bmp != null && !bmp.isRecycled) {
+                layer.fbo.loadBitmap(bmp)
+            } else if (!hasLayerBitmaps && index == 0 && fallbackBaseBitmap != null && !fallbackBaseBitmap.isRecycled) {
+                layer.fbo.loadBitmap(fallbackBaseBitmap)
+            } else {
+                clearLayer(layer, 0.0f, 0.0f, 0.0f, 0.0f)
+            }
+        }
+        clearHistory()
+    }
 
     fun sampleCanvasColor(canvasX: Float, canvasY: Float): Int {
         if (width <= 0 || height <= 0) return Color.BLACK
@@ -1119,7 +1158,7 @@ class SmartDrawRenderer(
         return (a shl 24) or (r shl 16) or (g shl 8) or b
     }
 
-    fun exportCompositeBitmap(): Bitmap {
+    fun exportCompositeBitmap(includeReference: Boolean = false): Bitmap {
         composite(
             targetFramebuffer = compositeFbo.framebufferId,
             viewportW = width,
@@ -1127,7 +1166,8 @@ class SmartDrawRenderer(
             translationX = 0f,
             translationY = 0f,
             scale = 1.0f,
-            rotationDegrees = 0f
+            rotationDegrees = 0f,
+            includeReference = includeReference
         )
         return compositeFbo.readBitmap()
     }

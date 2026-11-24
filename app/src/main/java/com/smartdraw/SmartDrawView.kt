@@ -139,6 +139,7 @@ class SmartDrawView @JvmOverloads constructor(
     // rendererInstance is null. These pending fields stage data on the main thread and are
     // drained and uploaded to GPU textures inside onSurfaceCreated() on the dedicated GL render thread.
     private var pendingBaseBitmap: Bitmap? = null
+    private val pendingLayerBitmaps = LinkedHashMap<String, Bitmap>()
     private var pendingReferenceBitmap: Bitmap? = null
     private var pendingReferenceOpacity: Float? = null
     private var pendingReferenceVisible: Boolean? = null
@@ -349,8 +350,15 @@ class SmartDrawView @JvmOverloads constructor(
         rendererInstance = renderer
 
         if (layersList.isNotEmpty()) {
+            for (l in renderer.layers) {
+                l.release()
+            }
             renderer.layers.clear()
-            for (meta in layersList) {
+            val hasLayerBitmaps = pendingLayerBitmaps.isNotEmpty()
+            val baseBmp = pendingBaseBitmap
+            val hasBaseBmp = baseBmp != null && !baseBmp.isRecycled
+
+            for ((index, meta) in layersList.withIndex()) {
                 val cl = CanvasLayer(
                     id = meta.id,
                     name = meta.name,
@@ -358,16 +366,27 @@ class SmartDrawView @JvmOverloads constructor(
                     isVisible = meta.isVisible,
                     fbo = GlesFbo(canvasWidth, canvasHeight)
                 )
-                renderer.clearLayer(cl, 0.0f, 0.0f, 0.0f, 0.0f)
+                val layerBmp = pendingLayerBitmaps[meta.id]
+                if (layerBmp != null && !layerBmp.isRecycled) {
+                    cl.fbo.loadBitmap(layerBmp)
+                } else if (!hasLayerBitmaps && index == 0 && hasBaseBmp) {
+                    cl.fbo.loadBitmap(baseBmp!!)
+                } else {
+                    renderer.clearLayer(cl, 0.0f, 0.0f, 0.0f, 0.0f)
+                }
                 renderer.layers.add(cl)
             }
             internalActiveLayerId?.let { renderer.selectLayer(it) }
         }
 
         // Drain pending GL lifecycle queue: upload staged bitmaps and layer parameters
+        for (bmp in pendingLayerBitmaps.values) {
+            if (!bmp.isRecycled) bmp.recycle()
+        }
+        pendingLayerBitmaps.clear()
+
         val baseBmp = pendingBaseBitmap
         if (baseBmp != null && !baseBmp.isRecycled) {
-            renderer.loadBaseBitmap(baseBmp)
             baseBmp.recycle()
         }
         pendingBaseBitmap = null
@@ -640,6 +659,15 @@ class SmartDrawView @JvmOverloads constructor(
     fun getActiveLayerId(): String? = internalActiveLayerId
 
     fun setLayers(layers: List<LayerMetadata>, activeId: String? = null) {
+        setLayersWithBitmaps(layers, activeId, emptyMap(), null)
+    }
+
+    fun setLayersWithBitmaps(
+        layers: List<LayerMetadata>,
+        activeId: String? = null,
+        layerBitmaps: Map<String, Bitmap> = emptyMap(),
+        fallbackBaseBitmap: Bitmap? = null
+    ) {
         if (layers.isEmpty()) return
         layersList.clear()
         layersList.addAll(layers)
@@ -656,7 +684,8 @@ class SmartDrawView @JvmOverloads constructor(
                     l.release()
                 }
                 r.layers.clear()
-                for (meta in layersList) {
+                val hasLayerBitmaps = layerBitmaps.isNotEmpty()
+                for ((index, meta) in layersList.withIndex()) {
                     val cl = CanvasLayer(
                         id = meta.id,
                         name = meta.name,
@@ -664,12 +693,34 @@ class SmartDrawView @JvmOverloads constructor(
                         isVisible = meta.isVisible,
                         fbo = GlesFbo(canvasWidth, canvasHeight)
                     )
-                    r.clearLayer(cl, 0.0f, 0.0f, 0.0f, 0.0f)
+                    val layerBmp = layerBitmaps[meta.id]
+                    if (layerBmp != null && !layerBmp.isRecycled) {
+                        cl.fbo.loadBitmap(layerBmp)
+                    } else if (!hasLayerBitmaps && index == 0 && fallbackBaseBitmap != null && !fallbackBaseBitmap.isRecycled) {
+                        cl.fbo.loadBitmap(fallbackBaseBitmap)
+                    } else {
+                        r.clearLayer(cl, 0.0f, 0.0f, 0.0f, 0.0f)
+                    }
                     r.layers.add(cl)
                 }
                 internalActiveLayerId?.let { r.selectLayer(it) }
+                r.clearHistory()
+                updateHistoryState(false, false)
                 requestRender()
+
+                // Clean up bitmaps after GL upload
+                layerBitmaps.values.forEach { if (!it.isRecycled) it.recycle() }
+                fallbackBaseBitmap?.let { if (!it.isRecycled) it.recycle() }
             }
+        } else {
+            for (bmp in pendingLayerBitmaps.values) {
+                if (!bmp.isRecycled) bmp.recycle()
+            }
+            pendingLayerBitmaps.clear()
+            pendingLayerBitmaps.putAll(layerBitmaps)
+
+            pendingBaseBitmap?.let { if (!it.isRecycled) it.recycle() }
+            pendingBaseBitmap = fallbackBaseBitmap
         }
         onLayersChanged?.invoke()
     }
@@ -1092,20 +1143,57 @@ class SmartDrawView @JvmOverloads constructor(
     }
 
     fun exportBaseBitmap(onExported: (Bitmap) -> Unit) {
-        queueEvent {
-            val bmp = rendererInstance?.exportBaseBitmap()
-            if (bmp != null) {
-                post { onExported(bmp) }
+        val r = rendererInstance
+        if (r != null) {
+            queueEvent {
+                val bmp = r.exportBaseBitmap()
+                onExported(bmp)
             }
+        } else {
+            val fallback = pendingBaseBitmap?.let {
+                if (!it.isRecycled) it.copy(it.config ?: Bitmap.Config.ARGB_8888, true) else null
+            } ?: Bitmap.createBitmap(canvasWidth, canvasHeight, Bitmap.Config.ARGB_8888)
+            onExported(fallback)
+        }
+    }
+
+    fun exportSaveBitmaps(onExported: (composite: Bitmap, layers: Map<String, Bitmap>) -> Unit) {
+        val r = rendererInstance
+        if (r != null) {
+            queueEvent {
+                val composite = r.exportCompositeBitmap(includeReference = false)
+                val layersMap = LinkedHashMap<String, Bitmap>()
+                for (layer in r.layers) {
+                    layersMap[layer.id] = layer.fbo.readBitmap()
+                }
+                onExported(composite, layersMap)
+            }
+        } else {
+            val fallback = pendingBaseBitmap?.let {
+                if (!it.isRecycled) it.copy(it.config ?: Bitmap.Config.ARGB_8888, true) else null
+            } ?: Bitmap.createBitmap(canvasWidth, canvasHeight, Bitmap.Config.ARGB_8888)
+            val fallbackLayers = LinkedHashMap<String, Bitmap>()
+            for ((id, bmp) in pendingLayerBitmaps) {
+                if (!bmp.isRecycled) {
+                    fallbackLayers[id] = bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, true)
+                }
+            }
+            onExported(fallback, fallbackLayers)
         }
     }
 
     fun exportBitmap(onExported: (Bitmap) -> Unit) {
-        queueEvent {
-            val bmp = rendererInstance?.exportCompositeBitmap()
-            if (bmp != null) {
-                post { onExported(bmp) }
+        val r = rendererInstance
+        if (r != null) {
+            queueEvent {
+                val bmp = r.exportCompositeBitmap(includeReference = false)
+                onExported(bmp)
             }
+        } else {
+            val fallback = pendingBaseBitmap?.let {
+                if (!it.isRecycled) it.copy(it.config ?: Bitmap.Config.ARGB_8888, true) else null
+            } ?: Bitmap.createBitmap(canvasWidth, canvasHeight, Bitmap.Config.ARGB_8888)
+            onExported(fallback)
         }
     }
 
@@ -1114,5 +1202,13 @@ class SmartDrawView @JvmOverloads constructor(
             rendererInstance?.release()
             rendererInstance = null
         }
+        for (bmp in pendingLayerBitmaps.values) {
+            if (!bmp.isRecycled) bmp.recycle()
+        }
+        pendingLayerBitmaps.clear()
+        pendingBaseBitmap?.let { if (!it.isRecycled) it.recycle() }
+        pendingBaseBitmap = null
+        pendingReferenceBitmap?.let { if (!it.isRecycled) it.recycle() }
+        pendingReferenceBitmap = null
     }
 }

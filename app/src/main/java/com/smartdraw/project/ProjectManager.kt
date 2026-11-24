@@ -145,23 +145,33 @@ class ProjectManager(private val context: Context) {
         }
 
         val now = System.currentTimeMillis()
+        val initialLayerId = UUID.randomUUID().toString()
+        val initialLayer = LayerMetadata(id = initialLayerId, name = "Layer 1")
         val project = PaintingProject(
             id = id,
             title = title ?: "Untitled Painting",
             canvasWidth = width,
             canvasHeight = height,
             createdAt = now,
-            updatedAt = now
+            updatedAt = now,
+            layers = listOf(initialLayer),
+            activeLayerId = initialLayerId
         )
 
-        // Generate baseline blank white canvas bitmap and thumbnail
+        // Generate baseline blank white canvas bitmap, blank layer bitmap, and thumbnail
         val blankBitmap = createBlankBitmap(width, height)
-        val thumbBitmap = createThumbnailBitmap(blankBitmap)
+        val blankLayerBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
 
-        saveProject(project, blankBitmap, null, isDirty = true)
+        saveProject(
+            project = project,
+            baseBitmap = blankBitmap,
+            layerBitmaps = mapOf(initialLayerId to blankLayerBitmap),
+            referenceBitmap = null,
+            isDirty = true
+        )
 
         blankBitmap.recycle()
-        thumbBitmap.recycle()
+        blankLayerBitmap.recycle()
 
         setActiveProject(id)
         return project
@@ -170,6 +180,7 @@ class ProjectManager(private val context: Context) {
     fun saveProject(
         project: PaintingProject,
         baseBitmap: Bitmap,
+        layerBitmaps: Map<String, Bitmap>,
         referenceBitmap: Bitmap?,
         isDirty: Boolean = true
     ) {
@@ -182,7 +193,7 @@ class ProjectManager(private val context: Context) {
             project.updatedAt = System.currentTimeMillis()
         }
 
-        // 1. Write painting.png atomically
+        // 1. Write painting.png atomically (composite/flattened image)
         val paintingFile = File(projectDir, PAINTING_FILE)
         saveBitmapAtomically(paintingFile, baseBitmap)
 
@@ -202,8 +213,36 @@ class ProjectManager(private val context: Context) {
             thumbBitmap.recycle()
         }
 
-        // 4. Write metadata.json atomically
+        // 4. Save per-layer textures: layer_<layerId>.png
+        for ((layerId, bitmap) in layerBitmaps) {
+            if (!bitmap.isRecycled) {
+                val layerFile = File(projectDir, "layer_${layerId}.png")
+                saveBitmapAtomically(layerFile, bitmap)
+            }
+        }
+
+        // 5. Clean up orphaned layer files: any layer_*.png whose ID is not in project.layers
+        val activeLayerIds = project.layers.map { it.id }.toSet()
+        projectDir.listFiles { file ->
+            file.isFile && file.name.startsWith("layer_") && file.name.endsWith(".png")
+        }?.forEach { file ->
+            val layerId = file.name.removePrefix("layer_").removeSuffix(".png")
+            if (layerId !in activeLayerIds) {
+                file.delete()
+            }
+        }
+
+        // 6. Write metadata.json atomically
         writeMetadata(project)
+    }
+
+    fun saveProject(
+        project: PaintingProject,
+        baseBitmap: Bitmap,
+        referenceBitmap: Bitmap?,
+        isDirty: Boolean = true
+    ) {
+        saveProject(project, baseBitmap, emptyMap(), referenceBitmap, isDirty)
     }
 
     fun loadProject(id: String): LoadedProjectData {
@@ -228,7 +267,32 @@ class ProjectManager(private val context: Context) {
             BitmapFactory.decodeFile(sourceFile.absolutePath, opts)
         } else null
 
-        return LoadedProjectData(project, baseBitmap, refBitmap)
+        val layerBitmaps = LinkedHashMap<String, Bitmap>()
+        for (layer in project.layers) {
+            val layerFile = File(projectDir, "layer_${layer.id}.png")
+            if (layerFile.exists()) {
+                val opts = BitmapFactory.Options().apply {
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                    inMutable = true
+                }
+                val layerBmp = BitmapFactory.decodeFile(layerFile.absolutePath, opts)
+                if (layerBmp != null) {
+                    layerBitmaps[layer.id] = layerBmp
+                }
+            }
+        }
+
+        return LoadedProjectData(
+            project = project,
+            baseBitmap = baseBitmap,
+            referenceBitmap = refBitmap,
+            layerBitmaps = layerBitmaps
+        )
+    }
+
+    fun deleteLayerFile(projectId: String, layerId: String): Boolean {
+        val file = File(getProjectDir(projectId), "layer_${layerId}.png")
+        return if (file.exists()) file.delete() else false
     }
 
     fun deleteProject(id: String): Boolean {

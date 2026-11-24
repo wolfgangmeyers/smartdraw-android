@@ -242,4 +242,72 @@ class ProjectManagerTest {
         assertFalse(loaded.project.layers[1].isVisible)
         assertEquals("layer-2", loaded.project.activeLayerId)
     }
+
+    @Test
+    fun testPerLayerBitmapPersistenceAndOrphanCleanup() {
+        val project = projectManager.createNewProject(256, 256, "PerLayer Test")
+        val layer1Id = "layer-1"
+        val layer2Id = "layer-2"
+        val layer1 = LayerMetadata(id = layer1Id, name = "Background")
+        val layer2 = LayerMetadata(id = layer2Id, name = "Foreground")
+        project.layers = listOf(layer1, layer2)
+        project.activeLayerId = layer2Id
+
+        val baseBmp = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888).apply {
+            setPixel(10, 10, Color.WHITE)
+        }
+        val layer1Bmp = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888).apply {
+            setPixel(50, 50, Color.RED)
+        }
+        val layer2Bmp = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888).apply {
+            setPixel(100, 100, Color.BLUE)
+        }
+
+        projectManager.saveProject(
+            project = project,
+            baseBitmap = baseBmp,
+            layerBitmaps = mapOf(layer1Id to layer1Bmp, layer2Id to layer2Bmp),
+            referenceBitmap = null,
+            isDirty = true
+        )
+
+        val projectDir = projectManager.getProjectDir(project.id)
+        val l1File = File(projectDir, "layer_${layer1Id}.png")
+        val l2File = File(projectDir, "layer_${layer2Id}.png")
+        assertTrue("layer-1 file should exist", l1File.exists())
+        assertTrue("layer-2 file should exist", l2File.exists())
+
+        // Load and verify pixels
+        val loaded = projectManager.loadProject(project.id)
+        assertEquals(2, loaded.layerBitmaps.size)
+        val loadedL1 = loaded.layerBitmaps[layer1Id]
+        val loadedL2 = loaded.layerBitmaps[layer2Id]
+        assertNotNull(loadedL1)
+        assertNotNull(loadedL2)
+        assertEquals(Color.RED, loadedL1?.getPixel(50, 50))
+        assertEquals(Color.BLUE, loadedL2?.getPixel(100, 100))
+
+        // Now remove layer-2 and verify orphan cleanup
+        project.layers = listOf(layer1)
+        project.activeLayerId = layer1Id
+        projectManager.saveProject(
+            project = project,
+            baseBitmap = baseBmp,
+            layerBitmaps = mapOf(layer1Id to layer1Bmp),
+            referenceBitmap = null,
+            isDirty = true
+        )
+
+        assertTrue("layer-1 file should still exist", l1File.exists())
+        assertFalse("layer-2 file should have been cleaned up as an orphan", l2File.exists())
+
+        val reloaded = projectManager.loadProject(project.id)
+        assertEquals(1, reloaded.layerBitmaps.size)
+        assertTrue(reloaded.layerBitmaps.containsKey(layer1Id))
+        assertFalse(reloaded.layerBitmaps.containsKey(layer2Id))
+
+        baseBmp.recycle()
+        layer1Bmp.recycle()
+        layer2Bmp.recycle()
+    }
 }

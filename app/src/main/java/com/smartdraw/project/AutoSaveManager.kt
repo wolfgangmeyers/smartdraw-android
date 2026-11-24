@@ -20,7 +20,12 @@ class AutoSaveManager(
 ) {
     interface ProjectDataProvider {
         fun getCurrentProject(): PaintingProject?
-        fun requestBaseBitmap(onBitmapReady: (Bitmap) -> Unit)
+        fun requestSaveData(onDataReady: (compositeBitmap: Bitmap, layerBitmaps: Map<String, Bitmap>) -> Unit) {
+            requestBaseBitmap { bmp ->
+                onDataReady(bmp, emptyMap())
+            }
+        }
+        fun requestBaseBitmap(onBitmapReady: (Bitmap) -> Unit) {}
         fun getReferenceBitmap(): Bitmap?
     }
 
@@ -72,13 +77,14 @@ class AutoSaveManager(
 
         cancelDebounceTimer()
 
-        provider.requestBaseBitmap { baseBitmap ->
+        provider.requestSaveData { compositeBitmap, layerBitmaps ->
             val refBitmap = provider.getReferenceBitmap()
             activeSaveJob = coroutineScope.launch(ioDispatcher) {
                 try {
                     projectManager.saveProject(
                         project = project,
-                        baseBitmap = baseBitmap,
+                        baseBitmap = compositeBitmap,
+                        layerBitmaps = layerBitmaps,
                         referenceBitmap = refBitmap,
                         isDirty = true
                     )
@@ -89,7 +95,12 @@ class AutoSaveManager(
                 } catch (e: Exception) {
                     Log.e(TAG, "Error during async auto-save", e)
                 } finally {
-                    baseBitmap.recycle()
+                    if (!compositeBitmap.isRecycled) {
+                        compositeBitmap.recycle()
+                    }
+                    layerBitmaps.values.forEach { bmp ->
+                        if (!bmp.isRecycled) bmp.recycle()
+                    }
                 }
             }
         }
@@ -101,25 +112,28 @@ class AutoSaveManager(
 
         val project = provider.getCurrentProject() ?: return
 
-        var baseBmp: Bitmap? = null
+        var compBmp: Bitmap? = null
+        var layersMap: Map<String, Bitmap>? = null
         val lock = java.lang.Object()
 
-        provider.requestBaseBitmap { bitmap ->
+        provider.requestSaveData { composite, layers ->
             synchronized(lock) {
-                baseBmp = bitmap
+                compBmp = composite
+                layersMap = layers
                 lock.notifyAll()
             }
         }
 
         synchronized(lock) {
-            if (baseBmp == null) {
+            if (compBmp == null) {
                 try {
-                    lock.wait(1500)
+                    lock.wait(2000)
                 } catch (ignored: InterruptedException) {}
             }
         }
 
-        val bitmapToSave = baseBmp ?: return
+        val bitmapToSave = compBmp ?: return
+        val layerBitmapsToSave = layersMap ?: emptyMap()
         val refBitmap = provider.getReferenceBitmap()
 
         try {
@@ -127,6 +141,7 @@ class AutoSaveManager(
                 projectManager.saveProject(
                     project = project,
                     baseBitmap = bitmapToSave,
+                    layerBitmaps = layerBitmapsToSave,
                     referenceBitmap = refBitmap,
                     isDirty = true
                 )
@@ -135,7 +150,12 @@ class AutoSaveManager(
         } catch (e: Exception) {
             Log.e(TAG, "Error in flushSaveSync", e)
         } finally {
-            bitmapToSave.recycle()
+            if (!bitmapToSave.isRecycled) {
+                bitmapToSave.recycle()
+            }
+            layerBitmapsToSave.values.forEach { bmp ->
+                if (!bmp.isRecycled) bmp.recycle()
+            }
         }
     }
 }
